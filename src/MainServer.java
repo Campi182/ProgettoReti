@@ -13,29 +13,28 @@ import java.rmi.registry.Registry;
 import java.rmi.server.RemoteObject;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class MainServer extends RemoteObject implements InterfaceUserRegistration{
 
 	//------------------------strutture dati e variabili----------------- //
-	private static int IdUser = 1;
 	private static final long serialVersionUID = 1L;
 	
 	private static int PORT = 6789; //!!DA PRENDERE DAL CONFIG FILE
 	private static Selector selector = null;
 
-	private Map<Integer, InfoRegistration> users;
+	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
+	//private Map<Integer, InfoRegistration> users;
+	private static List<Utente> registeredUsers;
 	
 	
 	//---------------------------------------------------------------------/
 	
 	//constructor
 	public MainServer() {
-		users = new HashMap<Integer, InfoRegistration>();
+		registeredUsers = new ArrayList<Utente>();
 	}
 	
 	
@@ -53,6 +52,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		}catch(RemoteException e) {
 			System.err.println("Errore: " + e.getMessage());
 		}
+		
 		
 		try {
 			//Listening per nuove connessioni
@@ -99,7 +99,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						
 						switch(split_str[0]) {
 						case "login":
-							System.out.println("LOGIN");
+							boolean tmp = login(split_str[1], split_str[2]);
 							break;
 						case "logout":
 							System.out.println("LOGOUT");
@@ -111,6 +111,8 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						}
 						key.interestOps(SelectionKey.OP_WRITE);
 					}
+					
+					//DA CAMBIARE
 					else if(key.isWritable()) { //write requests
 						//SEND RESPONSE
 						SocketChannel client = (SocketChannel) key.channel();
@@ -130,18 +132,36 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 	}//MAIN
 	
 	//Method of RMI interface
-	public void register(String username, String password, List<String> tags){
-		InfoRegistration user = new InfoRegistration(username, password, tags);
-		users.put(IdUser, user);
-		IdUser++;
+	public void register(String username, String password) throws RemoteException{
+		//Manca controllo unicita username, crittografare psw
+		//username a unico, non ho bisogno di IdUser
+		
+		System.out.println("Requested register: " + username + " " + password);
+		Utente user = new Utente(username, password);
+		registeredUsers.add(user);
+		System.out.println("Registration success");
 	}
 
+	/*
 	//Method of RMI interface (only for debugging)
 	public List<String> getUsernames(){
 		List<String> u = new ArrayList<String>();
-		for(Integer key : users.keySet())
+		for(Integer key : registeredUsers.keySet())
 			u.add(users.get(key).getUsername());
 		return u;
 	}
+	 */
 
+	public static boolean login(String username, String password) {
+		
+		for(Utente u : registeredUsers) {
+			if(u.getUsername().equals(username)) {
+				if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
 }

@@ -1,17 +1,20 @@
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Scanner;
 
 public class MainClient {
 
 	private static int PORT = 6789;
+	//private static List<String> tags;
 	
 	public static void main(String[] args) {
+
 		SocketChannel socketChannel;
 		try {
 			//Setup RMI for registration
@@ -25,20 +28,17 @@ public class MainClient {
 			
 			System.out.println("Benvenuto su WINSOME.\nLogin o Registrati");
 			
+			
 			while(true) {
 				String command = in.nextLine();
 				String[] splitCommand = command.split(" ");
 				
 				switch(splitCommand[0].toLowerCase()) {
-				case "registrati":
+				case "register":
 					Registrazione(splitCommand, stub);
 					break;
 				case "login":
-					System.out.println("Login");
-					break;
-				case "listusers":
-					List<String> users = stub.getUsernames();
-					for(String u : users)	System.out.println(u);
+					//boolean ret = login(command, socketChannel);
 					break;
 				default:
 					System.out.println("ERROR: invalid command");
@@ -51,18 +51,25 @@ public class MainClient {
 	}//main
 	
 	public static void Registrazione(String[] command, InterfaceUserRegistration stub) throws RemoteException{
-		if(command.length < 3 || command.length > 8)
-			System.err.println("ERROR. Usage registrati: registrati [username] [password] [tags]");
-		else{
-			List<String> tags = new ArrayList<String>();
-			for(int i = 3; i < command.length-3; i++)
-				tags.add(command[i]);
-			stub.register(command[1],command[2], tags);
+		if(command.length < 3 || command.length > 8) {
+			System.err.println("ERROR. Usage registrati: register [username] [password] [tags]");
+		} else {
+			stub.register(command[1],command[2]);	//RMI of mainserver
 			System.out.println("Registrazione effettuata con successo");
 		}
 	}
 
-	public static void Login() {
-		System.out.println("Login");
+	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException {
+		//Send
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		//Receive
+		ByteBuffer buffer = ByteBuffer.allocate(20);
+		socketChannel.read(buffer);
+		buffer.flip();
+		String response = new String(buffer.array()).trim();
+		System.out.println(response+" - by server");
+		buffer.clear();
+		return true;
 	}
 }

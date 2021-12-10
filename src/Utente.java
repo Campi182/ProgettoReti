@@ -1,15 +1,14 @@
-import java.util.List;
 
-public class InfoRegistration {
+public class Utente {
 
 	private String username;
 	private String password;
-	private List<String> tags;
+	//private List<String> tags;
 	
-	public InfoRegistration(String username, String password, List<String> tags) {
+	public Utente(String username, String password) {
 		this.username = username;
 		this.password = password;
-		this.tags = tags;
+		//this.tags = tags;
 	}
 	
 	public String getUsername() {
@@ -20,7 +19,4 @@ public class InfoRegistration {
 		return this.password;
 	}
 	
-	public List<String> getTags(){
-		return this.tags;
-	}
 }
