@@ -6,16 +6,19 @@ import java.nio.charset.StandardCharsets;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class MainClient {
 
 	private static int PORT = 6789;
-	//private static List<String> tags;
+	private static List<String> tags = new ArrayList<String>();
 	
 	public static void main(String[] args) {
 
 		SocketChannel socketChannel;
+		
 		try {
 			//Setup RMI for registration
 			Registry r = LocateRegistry.getRegistry(5000);
@@ -38,7 +41,7 @@ public class MainClient {
 					Registrazione(splitCommand, stub);
 					break;
 				case "login":
-					//boolean ret = login(command, socketChannel);
+					login(command, socketChannel);
 					break;
 				default:
 					System.out.println("ERROR: invalid command");
@@ -54,7 +57,10 @@ public class MainClient {
 		if(command.length < 3 || command.length > 8) {
 			System.err.println("ERROR. Usage registrati: register [username] [password] [tags]");
 		} else {
-			stub.register(command[1],command[2]);	//RMI of mainserver
+			for(int i = 3; i<command.length; i++)
+				tags.add(new String(command[i]));
+			//for(String u : tags)	System.out.println(u);
+			stub.register(command[1],command[2], tags);	//RMI of mainserver
 			System.out.println("Registrazione effettuata con successo");
 		}
 	}
@@ -64,7 +70,7 @@ public class MainClient {
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		
 		//Receive
-		ByteBuffer buffer = ByteBuffer.allocate(20);
+		ByteBuffer buffer = ByteBuffer.allocate(50000);
 		socketChannel.read(buffer);
 		buffer.flip();
 		String response = new String(buffer.array()).trim();

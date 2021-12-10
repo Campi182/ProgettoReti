@@ -72,7 +72,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 					e.printStackTrace();
 					break;
 				}
-			}
+			
 			
 			Set<SelectionKey> readyKeys = selector.selectedKeys();
 			Iterator<SelectionKey> iterator = readyKeys.iterator();
@@ -99,7 +99,8 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						
 						switch(split_str[0]) {
 						case "login":
-							boolean tmp = login(split_str[1], split_str[2]);
+							System.out.println("LOGIN REQUESTED");
+							//boolean tmp = login(split_str[1], split_str[2]);
 							break;
 						case "logout":
 							System.out.println("LOGOUT");
@@ -124,7 +125,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 					e.printStackTrace();
 				}
 			}
-		
+			}
 		
 		}catch(IOException e) {}
 		
@@ -132,12 +133,12 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 	}//MAIN
 	
 	//Method of RMI interface
-	public void register(String username, String password) throws RemoteException{
+	public void register(String username, String password, List<String> tags) throws RemoteException{
 		//Manca controllo unicita username, crittografare psw
 		//username a unico, non ho bisogno di IdUser
 		
 		System.out.println("Requested register: " + username + " " + password);
-		Utente user = new Utente(username, password);
+		Utente user = new Utente(username, password, tags);
 		registeredUsers.add(user);
 		System.out.println("Registration success");
 	}
