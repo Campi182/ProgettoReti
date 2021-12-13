@@ -117,11 +117,18 @@ public class MainClient {
 			System.out.println(u.getUsername() + " : " + u.getTags());
 	}
 
-	public static boolean logout(String cmd, SocketChannel socketChannel) throws IOException {
+	public static boolean logout(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
 		
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		//Receive
-		ObjectInputStream ois = new ObjectInputStream
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String result = ((String) ois.readObject()).trim();
+		
+		if(result.equals("OK")) {
+			System.out.println("LOGGED OUT");
+			return true;
+		} else System.out.println(result);
+		return false;
 	}
 
 }

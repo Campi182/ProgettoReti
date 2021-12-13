@@ -128,7 +128,13 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 							break;
 							
 						case "logout":
-							System.out.println("LOGOUT");
+							resString = logout((String)key.attachment());
+							if(resString.equals("OK"))	key.attach(null);
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							
 							break;
 						case "list":	//listUsers && list following
 							if(split_str[1].equals("users")) {	//list users
@@ -239,4 +245,18 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 			return new ResponseMessage<>("Non ci sono utenti con tag in comune", null);
 		else return new ResponseMessage<>("OK", UsersCommonTags);
 	}
+
+	public static String logout(String username) {
+		if(registeredUsers.isEmpty())	return "ERROR: No registered users";
+		
+		for(Utente u : registeredUsers) {
+			if(u.getUsername().equals(username)) {
+				return "OK";
+			}
+		}
+		return "ERROR: User doesn't exists";
+	}
+
+	
+	
 }
