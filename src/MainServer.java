@@ -52,7 +52,6 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		ByteArrayOutputStream baos;
 		ObjectOutputStream oos;
 		byte[] res = new byte[512];
-		List<byte[]> resList;
 		
 		String resString;
 		
@@ -76,8 +75,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 			selector = Selector.open();
 			SelectionKey clientKey = serverSocket.register(selector, SelectionKey.OP_ACCEPT);
 			
-			//buffer per leggere il comando dal client
-			ByteBuffer buffer = ByteBuffer.allocate(1024);
+			
 			System.out.println("SERVER IS ON");
 			
 			while(true) {
@@ -102,37 +100,46 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						client.configureBlocking(false);
 						System.out.println("Accepted connection from " + client);
 						client.register(selector, SelectionKey.OP_READ);
+						key.attach(null);
 					}
 					else if(key.isReadable()) { //read request
 						SocketChannel client = (SocketChannel) key.channel();
+						ByteBuffer buffer = ByteBuffer.allocate(1024);
 						client.read(buffer);
 						
-						String str_received = new String(buffer.array(), StandardCharsets.UTF_8).trim();
+						String str_received = new String(buffer.array()).trim();
 						String[] split_str = str_received.split(" ");
-						
-						
 						System.out.println("Command requested: " + str_received);
+						//buffer.clear();
 						
 						
 						switch(split_str[0]) {
 						case "login":
-
-							ResponseMessage<ResponseData> response = login(split_str[1], split_str[2]);
-							System.out.println(response.getCode());
+							ResponseMessage<ResponseData> res_Login = login(split_str[1], split_str[2]);
+							if(res_Login.getCode().equals("OK"))
+								key.attach(split_str[1]);
+							
+							
+							//Send response
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
-							System.out.println("ABOUT TO WRITE");
-							oos.writeObject(response);
-							System.out.println("WRITED");
+							oos.writeObject(res_Login);
 							res = baos.toByteArray();
 							break;
+							
 						case "logout":
 							System.out.println("LOGOUT");
 							break;
-						case "list":	//listUsers
-							//listUsers();
+						case "list":	//listUsers && list following
+							if(split_str[1].equals("users")) {	//list users
+								ResponseMessage<Utente> res_listUsers = listUsers((String)key.attachment());
+								baos = new ByteArrayOutputStream();
+								oos = new ObjectOutputStream(baos);
+								oos.writeObject(res_listUsers);
+								res = baos.toByteArray();
+							}
 							break;
-						default:
+						default:	//da rifare
 							resString = "ERROR: Command not found";
 							baos = new ByteArrayOutputStream();
 							System.out.println(baos.size());
@@ -154,13 +161,18 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						client.write(ByteBuffer.wrap(res));
 						key.interestOps(SelectionKey.OP_READ);
 					}
-				}catch(ClosedChannelException e) {
-					e.printStackTrace();
+				}catch(IOException e) {
+					key.cancel();
+					try {
+						key.channel().close();
+					}catch(IOException ig) {}
 				}
 			}
 			}
 		
-		}catch(IOException e) {}
+		}catch(IOException e) {
+			e.printStackTrace();
+		}
 		
 		
 	}//MAIN
@@ -185,17 +197,46 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 			if(u.getUsername().equals(username)) {
 				if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
 					tmp = true;
+					
 				} else code = "ERROR: wrong password";
 			}
 		}
-		if(!tmp) {
+		if(!tmp && code == null) 
 			code = "ERROR: User not found, register first";
-			response = new ResponseMessage<>(code, null);
-		} else response = new ResponseMessage<>("OK", null);
+			
+		if(!tmp) response = new ResponseMessage<>(code, null);
+		else response = new ResponseMessage<>("OK", null);
+		
 		return response;
 	}
 	
-	public void listUsers() {
+	public static ResponseMessage<Utente> listUsers(String username) {
+		System.out.println(username+" ha richiesto la lista");
 		
+		if(registeredUsers.isEmpty())
+			return new ResponseMessage<>("No Users Registered", null);
+		
+		List<Utente> UsersCommonTags = new ArrayList<>();
+		List<String> userTags = new ArrayList<>();
+		
+		for(Utente u : registeredUsers)
+			if(u.getUsername().equals(username)) {
+				userTags = u.getTags();
+			}
+		
+		for(Utente u : registeredUsers) {
+			if(!(u.getUsername().equals(username))) {
+				for(String t : userTags) {
+					if(u.getTags().contains(t)) {
+						UsersCommonTags.add(u);
+						System.out.println(u.getUsername());
+					}
+				}
+			}
+		}
+		
+		if(UsersCommonTags.isEmpty())
+			return new ResponseMessage<>("Non ci sono utenti con tag in comune", null);
+		else return new ResponseMessage<>("OK", UsersCommonTags);
 	}
 }

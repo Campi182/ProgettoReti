@@ -1,6 +1,7 @@
+import java.io.Serializable;
 import java.util.List;
 
-public class Utente {
+public class Utente implements Serializable{
 
 	private String username;
 	private String password;
@@ -20,4 +21,7 @@ public class Utente {
 		return this.password;
 	}
 	
+	public List<String> getTags(){
+		return this.tags;
+	}
 }

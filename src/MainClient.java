@@ -45,6 +45,14 @@ public class MainClient {
 				case "login":
 					login(command, socketChannel);
 					break;
+				case "logout":
+					logout(command, socketChannel);
+					break;
+				case "list":
+					if(splitCommand[1].equals("users")) {
+						listUsers(command, socketChannel);
+					}
+					break;
 				default:
 					System.out.println("ERROR: invalid command");
 					break;
@@ -68,16 +76,15 @@ public class MainClient {
 	}
 
 	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
-		//ResponseMessage<ResponseData> response;
 		
 		//Send
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
-		
+		//Receive
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		@SuppressWarnings("unchecked")
 		ResponseMessage<ResponseData> response = (ResponseMessage<ResponseData>) ois.readObject();
 		if(response.getCode().equals("OK")) {
-			System.out.println("User logged in");
+			System.out.println(response.getCode());
 			return true;
 		}
 		else {
@@ -85,4 +92,36 @@ public class MainClient {
 			return false;
 		}
 	}
+
+	public static void listUsers(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
+		
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		//Receive
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		
+		@SuppressWarnings("unchecked")
+		ResponseMessage<Utente> res = (ResponseMessage<Utente>) ois.readObject();
+		
+		if(res.getCode().equals("OK"))
+			System.out.println("ok");
+		else System.out.println("mica ok");
+		
+		if(res.getList() == null) {
+			System.out.println(res.getCode());
+			return;
+		}
+		
+		System.out.println("Users | Tags");
+		for(Utente u : res.getList())
+			System.out.println(u.getUsername() + " : " + u.getTags());
+	}
+
+	public static boolean logout(String cmd, SocketChannel socketChannel) throws IOException {
+		
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		//Receive
+		ObjectInputStream ois = new ObjectInputStream
+	}
+
 }
