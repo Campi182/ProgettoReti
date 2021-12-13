@@ -1,5 +1,8 @@
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.net.InetSocketAddress;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
@@ -17,6 +20,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import com.sun.net.httpserver.Authenticator.Result;
+
 public class MainServer extends RemoteObject implements InterfaceUserRegistration{
 
 	//------------------------strutture dati e variabili----------------- //
@@ -26,7 +31,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 	private static Selector selector = null;
 
 	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
-	//private Map<Integer, InfoRegistration> users;
+	//Utente <username, password, tags>
 	private static List<Utente> registeredUsers;
 	
 	
@@ -43,6 +48,14 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		
 		//RMI setup per registrazione
 		MainServer server = new MainServer();
+		//strutture per spedire le risposte/oggetti al client
+		ByteArrayOutputStream baos;
+		ObjectOutputStream oos;
+		byte[] res = new byte[512];
+		List<byte[]> resList;
+		
+		String resString;
+		
 		try {
 			InterfaceUserRegistration stub = (InterfaceUserRegistration) UnicastRemoteObject.exportObject(server, 0);
 			LocateRegistry.createRegistry(5000);
@@ -62,6 +75,8 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 			
 			selector = Selector.open();
 			SelectionKey clientKey = serverSocket.register(selector, SelectionKey.OP_ACCEPT);
+			
+			//buffer per leggere il comando dal client
 			ByteBuffer buffer = ByteBuffer.allocate(1024);
 			System.out.println("SERVER IS ON");
 			
@@ -95,18 +110,37 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						String str_received = new String(buffer.array(), StandardCharsets.UTF_8).trim();
 						String[] split_str = str_received.split(" ");
 						
+						
 						System.out.println("Command requested: " + str_received);
+						
 						
 						switch(split_str[0]) {
 						case "login":
-							System.out.println("LOGIN REQUESTED");
-							//boolean tmp = login(split_str[1], split_str[2]);
+
+							ResponseMessage<ResponseData> response = login(split_str[1], split_str[2]);
+							System.out.println(response.getCode());
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							System.out.println("ABOUT TO WRITE");
+							oos.writeObject(response);
+							System.out.println("WRITED");
+							res = baos.toByteArray();
 							break;
 						case "logout":
 							System.out.println("LOGOUT");
 							break;
+						case "list":	//listUsers
+							//listUsers();
+							break;
 						default:
-							System.out.println("ERROR: Incorrect command");
+							resString = "ERROR: Command not found";
+							baos = new ByteArrayOutputStream();
+							System.out.println(baos.size());
+							oos = new ObjectOutputStream(baos);
+							System.out.println(baos.size());
+							oos.writeObject("Ciao mondo");	
+							System.out.println("CIAOE");
+							res = baos.toByteArray();
 							break;
 							
 						}
@@ -117,8 +151,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 					else if(key.isWritable()) { //write requests
 						//SEND RESPONSE
 						SocketChannel client = (SocketChannel) key.channel();
-						client.write(buffer);
-						buffer.clear();
+						client.write(ByteBuffer.wrap(res));
 						key.interestOps(SelectionKey.OP_READ);
 					}
 				}catch(ClosedChannelException e) {
@@ -143,26 +176,26 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		System.out.println("Registration success");
 	}
 
-	/*
-	//Method of RMI interface (only for debugging)
-	public List<String> getUsernames(){
-		List<String> u = new ArrayList<String>();
-		for(Integer key : registeredUsers.keySet())
-			u.add(users.get(key).getUsername());
-		return u;
-	}
-	 */
-
-	public static boolean login(String username, String password) {
+	public static ResponseMessage<ResponseData> login(String username, String password) {
+		ResponseMessage<ResponseData> response;
+		String code = null;
+		boolean tmp = false;
 		
 		for(Utente u : registeredUsers) {
 			if(u.getUsername().equals(username)) {
 				if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
-					return true;
-				}
+					tmp = true;
+				} else code = "ERROR: wrong password";
 			}
 		}
-		return false;
+		if(!tmp) {
+			code = "ERROR: User not found, register first";
+			response = new ResponseMessage<>(code, null);
+		} else response = new ResponseMessage<>("OK", null);
+		return response;
 	}
 	
+	public void listUsers() {
+		
+	}
 }

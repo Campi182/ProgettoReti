@@ -1,4 +1,6 @@
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -65,17 +67,22 @@ public class MainClient {
 		}
 	}
 
-	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException {
+	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
+		//ResponseMessage<ResponseData> response;
+		
 		//Send
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		
-		//Receive
-		ByteBuffer buffer = ByteBuffer.allocate(50000);
-		socketChannel.read(buffer);
-		buffer.flip();
-		String response = new String(buffer.array()).trim();
-		System.out.println(response+" - by server");
-		buffer.clear();
-		return true;
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseMessage<ResponseData> response = (ResponseMessage<ResponseData>) ois.readObject();
+		if(response.getCode().equals("OK")) {
+			System.out.println("User logged in");
+			return true;
+		}
+		else {
+			System.out.println(response.getCode());
+			return false;
+		}
 	}
 }
