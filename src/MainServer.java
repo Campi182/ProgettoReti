@@ -2,37 +2,41 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.InetSocketAddress;
-import java.nio.Buffer;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.RemoteObject;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-import com.sun.net.httpserver.Authenticator.Result;
 
-public class MainServer extends RemoteObject implements InterfaceUserRegistration{
+
+public class MainServer extends RemoteObject implements InterfaceServerRMI{
 
 	//------------------------strutture dati e variabili----------------- //
 	private static final long serialVersionUID = 1L;
 	
 	private static int PORT = 6789; //!!DA PRENDERE DAL CONFIG FILE
 	private static Selector selector = null;
+	private static List<InterfaceNotifyEvent> clients; 
 
 	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
 	//Utente <username, password, tags>
 	private static List<Utente> registeredUsers;
+	private static Map<String, ArrayList<String>> followers;
+	private static Map<String, ArrayList<String>> following;
 	
 	
 	//---------------------------------------------------------------------/
@@ -40,6 +44,9 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 	//constructor
 	public MainServer() {
 		registeredUsers = new ArrayList<Utente>();
+		clients = new ArrayList<InterfaceNotifyEvent>();
+		followers = new HashMap<>();
+		following = new HashMap<>();
 	}
 	
 	
@@ -56,7 +63,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		String resString;
 		
 		try {
-			InterfaceUserRegistration stub = (InterfaceUserRegistration) UnicastRemoteObject.exportObject(server, 0);
+			InterfaceServerRMI stub = (InterfaceServerRMI) UnicastRemoteObject.exportObject(server, 0);
 			LocateRegistry.createRegistry(5000);
 			Registry r = LocateRegistry.getRegistry(5000);
 			r.rebind("Server", stub);
@@ -110,16 +117,17 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						String str_received = new String(buffer.array()).trim();
 						String[] split_str = str_received.split(" ");
 						System.out.println("Command requested: " + str_received);
-						//buffer.clear();
-						
 						
 						switch(split_str[0]) {
 						case "login":
-							ResponseMessage<ResponseData> res_Login = login(split_str[1], split_str[2]);
-							if(res_Login.getCode().equals("OK"))
-								key.attach(split_str[1]);
-							
-							
+							ResponseMessage<String> res_Login;
+							if(split_str.length != 3)
+								res_Login = new ResponseMessage<>("ERROR: Usage: login <username> <password>", null);
+							else {
+								res_Login = login(split_str[1], split_str[2]);
+								if(res_Login.getCode().equals("OK"))
+									key.attach(split_str[1]);	
+							}
 							//Send response
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
@@ -128,22 +136,55 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 							break;
 							
 						case "logout":
-							resString = logout((String)key.attachment());
-							if(resString.equals("OK"))	key.attach(null);
+							if(split_str.length != 1)
+								resString = "ERROR: Usage: logout";
+							else {
+								resString = logout((String)key.attachment());
+								if(resString.equals("OK"))	
+									key.attach(null);
+							}
+							
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(resString);
 							res = baos.toByteArray();
-							
 							break;
+							
 						case "list":	//listUsers && list following
-							if(split_str[1].equals("users")) {	//list users
-								ResponseMessage<Utente> res_listUsers = listUsers((String)key.attachment());
-								baos = new ByteArrayOutputStream();
-								oos = new ObjectOutputStream(baos);
-								oos.writeObject(res_listUsers);
-								res = baos.toByteArray();
+							ResponseMessage<Utente> res_listUsers = null;
+							if(split_str.length != 2)
+								res_listUsers = new ResponseMessage<>("ERROR: Usage: list users\nlist followers\nlist following", null);
+							else {
+								if(split_str[1].equals("users")) {	//list users
+									res_listUsers = listUsers((String)key.attachment());
+								}
+								
+								//if(split_str[1].equals("following"))
 							}
+								
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(res_listUsers);
+							res = baos.toByteArray();
+							break;
+							
+						case "follow":
+							if(split_str.length != 2)
+								resString = "ERROR: Usage: follow <username>";
+							else {
+								resString = follow((String) key.attachment(), split_str[1]);
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+							
+						case "quit":
+							if(key.attachment() != null)
+								logout((String)key.attachment());
+							client.close();
+							key.cancel();
 							break;
 						default:	//da rifare
 							resString = "ERROR: Command not found";
@@ -167,7 +208,7 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 						client.write(ByteBuffer.wrap(res));
 						key.interestOps(SelectionKey.OP_READ);
 					}
-				}catch(IOException e) {
+				}catch(IOException | CancelledKeyException e) {	//cancelledkey per quando faccio il quit
 					key.cancel();
 					try {
 						key.channel().close();
@@ -184,36 +225,50 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 	}//MAIN
 	
 	//Method of RMI interface
-	public void register(String username, String password, List<String> tags) throws RemoteException{
-		//Manca controllo unicita username, crittografare psw
-		//username a unico, non ho bisogno di IdUser
+	public String register(String username, String password, List<String> tags) throws RemoteException{
+		if(username.isEmpty() || password.isEmpty())
+			return "ERROR: Username and password cannot be empty";
 		
-		System.out.println("Requested register: " + username + " " + password);
+		for(Utente u : registeredUsers)
+			if(u.getUsername().equals(username))
+				return "ERROR: this username already exists";
+		
+		System.out.println("Requested register");
 		Utente user = new Utente(username, password, tags);
 		registeredUsers.add(user);
-		System.out.println("Registration success");
+		followers.put(username, new ArrayList<>());
+		following.put(username, new ArrayList<>());
+		return "Registration success";
 	}
 
-	public static ResponseMessage<ResponseData> login(String username, String password) {
-		ResponseMessage<ResponseData> response;
+	public static ResponseMessage<String> login(String username, String password) {
+
 		String code = null;
 		boolean tmp = false;
+		List<String> followList;
 		
-		for(Utente u : registeredUsers) {
-			if(u.getUsername().equals(username)) {
-				if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
-					tmp = true;
-					
-				} else code = "ERROR: wrong password";
+		if(username.isEmpty() || password.isEmpty())
+			code = "ERROR: Username and password cannot be empty";
+		else {
+			for(Utente u : registeredUsers) {
+				if(u.getUsername().equals(username)) {
+					if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
+						tmp = true;
+						code = "OK";
+					} else code = "ERROR: wrong password";
+				}
 			}
 		}
+		
+		if(tmp)
+			followList = new ArrayList<>(followers.get(username));
+		else followList = null;
+			
+		
 		if(!tmp && code == null) 
 			code = "ERROR: User not found, register first";
 			
-		if(!tmp) response = new ResponseMessage<>(code, null);
-		else response = new ResponseMessage<>("OK", null);
-		
-		return response;
+		return new ResponseMessage<>(code, followList);
 	}
 	
 	public static ResponseMessage<Utente> listUsers(String username) {
@@ -235,7 +290,6 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 				for(String t : userTags) {
 					if(u.getTags().contains(t)) {
 						UsersCommonTags.add(u);
-						System.out.println(u.getUsername());
 					}
 				}
 			}
@@ -256,7 +310,61 @@ public class MainServer extends RemoteObject implements InterfaceUserRegistratio
 		}
 		return "ERROR: User doesn't exists";
 	}
-
+	
+	public static String follow(String currUser, String userToFollow) {
+		if(userToFollow.isEmpty())
+			return "ERROR: username cannot be empty";
+		boolean exists = false;
+		for(Utente u : registeredUsers)
+			if(u.getUsername().equals(userToFollow))
+				exists = true;
+		
+		if(exists) {
+			followers.get(userToFollow).add(currUser);
+			try {
+				update(currUser);
+			} catch (RemoteException e) {
+				e.printStackTrace();
+			}	
+			following.get(currUser).add(userToFollow);
+			return "OK";
+		} else return "ERROR: user does not exists";
+		
+	}
+	
+	public synchronized void registerForCallback(InterfaceNotifyEvent clientInterface, String username) throws RemoteException{	
+		if(!clients.contains(clientInterface)) {
+			clients.add(clientInterface);
+			System.out.println("New client registered");
+		}
+		
+	}
+	
+	public static synchronized void unregisterForCallbacks(InterfaceNotifyEvent client) throws RemoteException{
+		clients.remove(client);
+		System.out.println("CALLBACK SYSTEM: Client unregistered");
+	}
 	
 	
+	public static void update(String username) throws RemoteException{
+		CallAddFollower(username);
+	}
+	
+	private static synchronized void CallAddFollower(String username) throws RemoteException{
+		LinkedList<InterfaceNotifyEvent> errors = new LinkedList<>();
+		System.out.println("CALLBACK SYSTEM: starting callbacks");
+		for(InterfaceNotifyEvent info : clients) {
+			try {
+				info.notifyEventAddFollower(username);
+			}catch(RemoteException e) {
+				errors.add(info);
+			}
+		}
+		
+		if(!errors.isEmpty()) {
+			System.out.println("CALLBACK SYSTEM: Unregistering clients that caused an error");
+			for(InterfaceNotifyEvent e : errors)	unregisterForCallbacks(e);
+		}
+		System.out.println("CALLBACK SYSTEM: Callback complete");
+	}
 }

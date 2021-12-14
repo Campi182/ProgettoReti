@@ -8,23 +8,29 @@ import java.nio.charset.StandardCharsets;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.RemoteObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-public class MainClient {
+public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 
 	private static int PORT = 6789;
+	private static String currentUser;
 	private static List<String> tags = new ArrayList<String>();
 	
+	private static List<String> followers;
+	
 	public static void main(String[] args) {
-
+		boolean logged = false;
+		boolean var = true;	//variabile per il ciclo while. con quit esco
+		boolean response;
 		SocketChannel socketChannel;
 		
 		try {
 			//Setup RMI for registration
 			Registry r = LocateRegistry.getRegistry(5000);
-			InterfaceUserRegistration stub = (InterfaceUserRegistration) r.lookup("Server");
+			InterfaceServerRMI stub = (InterfaceServerRMI) r.lookup("Server");
 			@SuppressWarnings("resource")
 			Scanner in = new Scanner(System.in);
 			
@@ -34,7 +40,7 @@ public class MainClient {
 			System.out.println("Benvenuto su WINSOME.\nLogin o Registrati");
 			
 			
-			while(true) {
+			while(var) {
 				String command = in.nextLine();
 				String[] splitCommand = command.split(" ");
 				
@@ -43,15 +49,56 @@ public class MainClient {
 					Registrazione(splitCommand, stub);
 					break;
 				case "login":
-					login(command, socketChannel);
+					if(logged) {
+						System.err.println("ERROR: User already logged in");
+						break;
+					}
+					response = login(command, socketChannel);
+					if(response)
+						logged = true;
 					break;
 				case "logout":
-					logout(command, socketChannel);
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					response = logout(command, socketChannel);
+					if(response)
+						logged = false;
 					break;
-				case "list":
+				case "list":		//manca listfollowers e list following
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
 					if(splitCommand[1].equals("users")) {
 						listUsers(command, socketChannel);
 					}
+					if(splitCommand[1].equals("followers")) {
+						if(followers.isEmpty())
+							System.out.println("Non hai followers");
+						else {
+							System.out.println("UTENTI CHE TI SEGUONO");
+							for(String u : followers)
+								System.out.println(u);
+						}
+					}
+					break;
+				case "follow":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else follow(command, socketChannel);
+					break;
+					
+				case "help":
+					help();
+					break;
+				case "quit":
+					socketChannel.write(ByteBuffer.wrap(command.getBytes(StandardCharsets.UTF_8)));
+					System.out.println("EXIT OK");
+					var = false;
 					break;
 				default:
 					System.out.println("ERROR: invalid command");
@@ -63,28 +110,30 @@ public class MainClient {
 		}
 	}//main
 	
-	public static void Registrazione(String[] command, InterfaceUserRegistration stub) throws RemoteException{
+	public static void Registrazione(String[] command, InterfaceServerRMI stub) throws RemoteException{
+		String result;
 		if(command.length < 3 || command.length > 8) {
 			System.err.println("ERROR. Usage registrati: register [username] [password] [tags]");
 		} else {
 			for(int i = 3; i<command.length; i++)
 				tags.add(new String(command[i]));
-			//for(String u : tags)	System.out.println(u);
-			stub.register(command[1],command[2], tags);	//RMI of mainserver
-			System.out.println("Registrazione effettuata con successo");
+			result = stub.register(command[1],command[2], tags);	//RMI of mainserver
+			System.out.println(result);
 		}
 	}
 
 	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
-		
+		String[] str_split = cmd.split(" ");
 		//Send
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		//Receive
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		@SuppressWarnings("unchecked")
-		ResponseMessage<ResponseData> response = (ResponseMessage<ResponseData>) ois.readObject();
+		ResponseMessage<String> response = (ResponseMessage<String>) ois.readObject();
 		if(response.getCode().equals("OK")) {
 			System.out.println(response.getCode());
+			currentUser = str_split[1];
+			followers = response.getList();	//preso la lista dei followers dal server
 			return true;
 		}
 		else {
@@ -102,10 +151,6 @@ public class MainClient {
 		
 		@SuppressWarnings("unchecked")
 		ResponseMessage<Utente> res = (ResponseMessage<Utente>) ois.readObject();
-		
-		if(res.getCode().equals("OK"))
-			System.out.println("ok");
-		else System.out.println("mica ok");
 		
 		if(res.getList() == null) {
 			System.out.println(res.getCode());
@@ -131,4 +176,35 @@ public class MainClient {
 		return false;
 	}
 
+	public static void follow(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
+		String[] str_split = cmd.split(" ");
+		
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		
+		String res = (String) ois.readObject();
+		
+		if(res.equals("OK"))
+			System.out.println("Ora segui " + str_split[1]);
+		else System.out.println(res);
+	}
+	
+	public static void help() {
+		System.out.println("------------------------COMANDS GUIDE-----------------");
+		System.out.println("register <username> <password> <tags> : Registra un nuovo utente nel sistema");
+		System.out.println("login <username> <password> : Login nel sistema");
+		System.out.println("logout");
+		System.out.println("list users : lista gli utenti con cui hai almeno un tag in comune");
+		//System.out.println();
+	}
+	
+	public void notifyEventAddFollower(String username) {
+		String  response = "CALLBACK: followers list event received";
+		System.out.println(response);
+		
+		if(!(followers.contains(username)))
+			followers.add(username);
+	}
+	
 }
