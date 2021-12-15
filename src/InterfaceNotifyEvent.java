@@ -3,6 +3,6 @@ import java.rmi.RemoteException;
 
 public interface InterfaceNotifyEvent  extends Remote{
 
-	void notifyEventAddFollower(String username) throws RemoteException;
+	void notifyEventListFollowers(String username) throws RemoteException;
 	
 }

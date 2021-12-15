@@ -74,6 +74,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					if(splitCommand[1].equals("users")) {
 						listUsers(command, socketChannel);
 					}
+					
 					if(splitCommand[1].equals("followers")) {
 						if(followers.isEmpty())
 							System.out.println("Non hai followers");
@@ -83,7 +84,12 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 								System.out.println(u);
 						}
 					}
+					
+					if(splitCommand[1].equals("following")) {
+						listFollowing(command, socketChannel);
+					}
 					break;
+					
 				case "follow":
 					if(!logged) {
 						System.err.println("ERROR: User not logged in");
@@ -91,7 +97,13 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					}
 					else follow(command, socketChannel);
 					break;
-					
+				case "unfollow":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else unfollow(command, socketChannel);
+					break;
 				case "help":
 					help();
 					break;
@@ -190,21 +202,53 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		else System.out.println(res);
 	}
 	
+	public static void unfollow(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		String[] str_split = cmd.split(" ");
+		
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		
+		if(res.equals("OK"))
+			System.out.println("Non segui piu " + str_split[1]);
+		else System.out.println(res);
+	}
+	
+	public static void listFollowing(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseMessage<String> res = (ResponseMessage<String>) ois.readObject();
+		
+		if(res.getList() == null) {
+			System.out.println(res.getCode());
+			return;
+		}
+		
+		System.out.println("Utenti che segui");
+		for(String u : res.getList())
+			System.out.println(u);
+	}
+	
 	public static void help() {
 		System.out.println("------------------------COMANDS GUIDE-----------------");
 		System.out.println("register <username> <password> <tags> : Registra un nuovo utente nel sistema");
 		System.out.println("login <username> <password> : Login nel sistema");
 		System.out.println("logout");
 		System.out.println("list users : lista gli utenti con cui hai almeno un tag in comune");
-		//System.out.println();
+		System.out.println("list followers: lista degli utenti che ti seguono");
+		System.out.println("list following: lista degli utenti che segui");
+		System.out.println("follow <username>: segui un utente");
+		System.out.println("unfollow <username>: smetti di seguire un utente");
+		System.out.println("quit: esci");
+		//System.out.println("");
 	}
 	
-	public void notifyEventAddFollower(String username) {
-		String  response = "CALLBACK: followers list event received";
-		System.out.println(response);
-		
+	public void notifyEventListFollowers(String username) {
 		if(!(followers.contains(username)))
 			followers.add(username);
+		else followers.remove(username);
 	}
 	
 }

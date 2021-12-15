@@ -152,19 +152,23 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							
 						case "list":	//listUsers && list following
 							ResponseMessage<Utente> res_listUsers = null;
-							if(split_str.length != 2)
-								res_listUsers = new ResponseMessage<>("ERROR: Usage: list users\nlist followers\nlist following", null);
-							else {
-								if(split_str[1].equals("users")) {	//list users
-									res_listUsers = listUsers((String)key.attachment());
-								}
-								
-								//if(split_str[1].equals("following"))
-							}
-								
+							ResponseMessage<String> res_listFollowing = null;
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
-							oos.writeObject(res_listUsers);
+				
+							if(split_str[1].equals("users")) {	//list users
+								if(split_str.length != 2)
+									res_listUsers = new ResponseMessage<>("ERROR: Usage: list users", null);
+								res_listUsers = listUsers((String)key.attachment());
+								oos.writeObject(res_listUsers);
+							}
+							
+							if(split_str[1].equals("following")) {
+								if(split_str.length != 2)
+									res_listFollowing = new ResponseMessage<>("ERROR: Usage: list followers", null);
+								res_listFollowing = listFollowing((String)key.attachment());
+								oos.writeObject(res_listFollowing);
+							}
 							res = baos.toByteArray();
 							break;
 							
@@ -173,6 +177,17 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 								resString = "ERROR: Usage: follow <username>";
 							else {
 								resString = follow((String) key.attachment(), split_str[1]);
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+						case "unfollow":
+							if(split_str.length != 2)
+								resString = "ERROR: Usage. unfollow <username>";
+							else {
+								resString = unfollow((String) key.attachment(), split_str[1]);
 							}
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
@@ -189,11 +204,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 						default:	//da rifare
 							resString = "ERROR: Command not found";
 							baos = new ByteArrayOutputStream();
-							System.out.println(baos.size());
 							oos = new ObjectOutputStream(baos);
-							System.out.println(baos.size());
-							oos.writeObject("Ciao mondo");	
-							System.out.println("CIAOE");
+							oos.writeObject(resString);	
 							res = baos.toByteArray();
 							break;
 							
@@ -300,6 +312,13 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		else return new ResponseMessage<>("OK", UsersCommonTags);
 	}
 
+	public static ResponseMessage<String> listFollowing(String username){
+		if(following.get(username).isEmpty())
+			return new ResponseMessage<>("Non segui nessuno", null);
+		
+		return new ResponseMessage<>("OK", following.get(username));
+	}
+	
 	public static String logout(String username) {
 		if(registeredUsers.isEmpty())	return "ERROR: No registered users";
 		
@@ -320,16 +339,41 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				exists = true;
 		
 		if(exists) {
-			followers.get(userToFollow).add(currUser);
-			try {
-				update(currUser);
-			} catch (RemoteException e) {
-				e.printStackTrace();
-			}	
-			following.get(currUser).add(userToFollow);
-			return "OK";
+			if(!following.get(currUser).contains(userToFollow)) {
+				followers.get(userToFollow).add(currUser);
+				following.get(currUser).add(userToFollow);
+				try {
+					update(currUser);
+				} catch (RemoteException e) {
+					e.printStackTrace();
+				}
+				return "OK";
+			} else return "ERROR: Segui gia' quest'utente";
 		} else return "ERROR: user does not exists";
 		
+	}
+	
+	public static String unfollow(String currUser, String userToUnfollow) {
+		if(userToUnfollow.isEmpty())
+			return "ERROR: username cannot be empty";
+		
+		boolean exists = false;
+		for(Utente u : registeredUsers)
+			if(u.getUsername().equals(userToUnfollow))
+				exists = true;
+		
+		if(exists) {
+			if(following.get(currUser).contains(userToUnfollow)) {
+				followers.get(userToUnfollow).remove(currUser);
+				following.get(currUser).remove(userToUnfollow);
+				try {
+					update(currUser);
+				} catch (RemoteException e) {
+					e.printStackTrace();
+				}	
+			}else return "ERROR: Non segui quest'utente";
+			return "OK";
+		} else return "ERROR: user does not exists";
 	}
 	
 	public synchronized void registerForCallback(InterfaceNotifyEvent clientInterface, String username) throws RemoteException{	
@@ -340,30 +384,20 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 	}
 	
-	public static synchronized void unregisterForCallbacks(InterfaceNotifyEvent client) throws RemoteException{
-		clients.remove(client);
-		System.out.println("CALLBACK SYSTEM: Client unregistered");
+	public synchronized void unregisterForCallback(InterfaceNotifyEvent client) throws RemoteException{
+		if(clients.remove(client))
+			System.out.println("CALLBACK SYSTEM: Client unregistered");
+		else System.out.println("Unable to unregister client");
 	}
-	
 	
 	public static void update(String username) throws RemoteException{
-		CallAddFollower(username);
+		CallbackFollowers(username);
 	}
 	
-	private static synchronized void CallAddFollower(String username) throws RemoteException{
-		LinkedList<InterfaceNotifyEvent> errors = new LinkedList<>();
+	private static synchronized void CallbackFollowers(String username) throws RemoteException{
 		System.out.println("CALLBACK SYSTEM: starting callbacks");
 		for(InterfaceNotifyEvent info : clients) {
-			try {
-				info.notifyEventAddFollower(username);
-			}catch(RemoteException e) {
-				errors.add(info);
-			}
-		}
-		
-		if(!errors.isEmpty()) {
-			System.out.println("CALLBACK SYSTEM: Unregistering clients that caused an error");
-			for(InterfaceNotifyEvent e : errors)	unregisterForCallbacks(e);
+			info.notifyEventListFollowers(username);
 		}
 		System.out.println("CALLBACK SYSTEM: Callback complete");
 	}
