@@ -37,6 +37,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	private static List<Utente> registeredUsers;
 	private static Map<String, ArrayList<String>> followers;
 	private static Map<String, ArrayList<String>> following;
+	private static Map<String, ArrayList<Post>> listPosts;
+	private static int IdPost;
 	
 	
 	//---------------------------------------------------------------------/
@@ -47,6 +49,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		clients = new ArrayList<InterfaceNotifyEvent>();
 		followers = new HashMap<>();
 		following = new HashMap<>();
+		listPosts = new HashMap<>();
+		IdPost = 0;
 	}
 	
 	
@@ -185,13 +189,51 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							break;
 						case "unfollow":
 							if(split_str.length != 2)
-								resString = "ERROR: Usage. unfollow <username>";
+								resString = "ERROR: Usage: unfollow <username>";
 							else {
 								resString = unfollow((String) key.attachment(), split_str[1]);
 							}
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+						
+						case "post":
+							if(split_str.length != 3)
+								resString = "ERROR: Usage: post <titolo> <contenuto>";
+							else {
+								resString = createPost((String)key.attachment(), split_str[1], split_str[2]);
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+							
+						case "show":
+							ResponseMessage<Post> resPosts = null;
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							
+							if(split_str[1].equals("feed")) {
+								if(split_str.length != 2)
+									resPosts = new ResponseMessage<>("ERROR: Usage: show feed", null);
+								resPosts = showFeed((String)key.attachment());
+								oos.writeObject(resPosts);
+							}
+							
+							res = baos.toByteArray();
+							break;
+							
+						case "blog":
+							ResponseMessage<Post> resMyPosts = null;
+							if(split_str.length != 1)
+								resMyPosts = new ResponseMessage<>("ERROR: Usage: blog", null);
+							resMyPosts = viewBlog((String)key.attachment());
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resMyPosts);
 							res = baos.toByteArray();
 							break;
 							
@@ -374,6 +416,62 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			}else return "ERROR: Non segui quest'utente";
 			return "OK";
 		} else return "ERROR: user does not exists";
+	}
+	
+	public static String createPost(String user, String title, String contenuto) {
+		if(title.isEmpty() || contenuto.isEmpty())
+			return "ERROR: title and content cannot be empty";
+		
+		if(title.length() > 20)
+			return "ERROR: la lunghezza del titolo deve essere di massimo 20 caratteri";
+		if(contenuto.length() > 500)
+			return "ERROR: la lunghezza del contenuto deve essere di massimo 500 caratteri";
+		
+		Post post = new Post(IdPost, user, title, contenuto);
+		IdPost++;
+		
+		if(!listPosts.containsKey(user)) {
+			listPosts.put(user, new ArrayList<>());
+		}
+		
+		listPosts.get(user).add(post);
+		
+		return "OK";
+	}
+	
+	public static ResponseMessage<Post> showFeed(String user){
+		
+		if(listPosts.isEmpty())
+			return new ResponseMessage<>("Non ci sono post nel social", null);
+		
+		List<Post> postInFeed = new ArrayList<>();
+		
+		for(var entry : listPosts.entrySet()) {
+			if(following.get(user).contains(entry.getKey())) {	//se l'utente segue la chiave
+				for(Post p : entry.getValue()) {
+					postInFeed.add(p);
+				}
+			}
+		}
+		if(postInFeed.isEmpty())
+			return new ResponseMessage<>("Non hai post nel feed", postInFeed);
+		return new ResponseMessage<>("OK", postInFeed);
+	}
+	
+	public static ResponseMessage<Post> viewBlog(String user){
+		if(listPosts.isEmpty())
+			return new ResponseMessage<>("Non ci sono post nel social", null);
+		if(!listPosts.containsKey(user))
+			return new ResponseMessage<>("Non hai creato nessun post", null);
+		
+		List<Post> myPosts = new ArrayList<>();
+
+		for(Post p : listPosts.get(user))
+			myPosts.add(p);
+		
+		if(myPosts.isEmpty())
+			return new ResponseMessage<>("Non hai post nel blog", myPosts);
+		return new ResponseMessage<>("OK", myPosts);
 	}
 	
 	public synchronized void registerForCallback(InterfaceNotifyEvent clientInterface, String username) throws RemoteException{	

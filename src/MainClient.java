@@ -104,6 +104,31 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					}
 					else unfollow(command, socketChannel);
 					break;
+					
+				case "post":
+					if(!logged) {
+						System.out.println("ERROR: User not logged in");
+						break;
+					}
+					else createPost(command, socketChannel);
+					break;
+					
+				case "show":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else showFeed(command, socketChannel);
+					break;
+					
+				case "blog":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else viewBlog(command, socketChannel);
+					break;
+					
 				case "help":
 					help();
 					break;
@@ -229,6 +254,53 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		System.out.println("Utenti che segui");
 		for(String u : res.getList())
 			System.out.println(u);
+	}
+	
+	public static void createPost(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		
+		if(res.equals("OK"))
+			System.out.println("Post pubblicato");
+		else System.out.println(res);
+		
+	}
+	
+	public static void showFeed(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseMessage<Post> res = (ResponseMessage<Post>) ois.readObject();
+		
+		if(res.getList() == null || res.getList().isEmpty()) {
+			System.out.println(res.getCode());
+			return;
+		}
+		
+		System.out.println("-----------FEED-------------");
+		for(Post p : res.getList()) {
+			System.out.println(p.getId()+"\t"+p.getAutore()+"\t"+p.getTitolo());
+		}
+	}
+	
+	public static void viewBlog(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseMessage<Post> res = (ResponseMessage<Post>) ois.readObject();
+		
+		if(res.getList() == null || res.getList().isEmpty()) {
+			System.out.println(res.getCode());
+			return;
+		}
+		
+		System.out.println("-----------BLOG-------------");
+		for(Post p : res.getList()) {
+			System.out.println(p.getId()+"\t"+p.getAutore()+"\t"+p.getTitolo());
+		}
 	}
 	
 	public static void help() {
