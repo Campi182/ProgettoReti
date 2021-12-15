@@ -6,14 +6,13 @@ public class Utente implements Serializable{	//tutte le cose che vado a scrivere
 	private String username;
 	private String password;
 	private List<String> tags;
-	
-	public List<String> followers;
-	public List<String> following;
+	private float wincoins;
 	
 	public Utente(String username, String password, List<String> tags) {
 		this.username = username;
 		this.password = password;
 		this.tags = tags;
+		this.wincoins = 0;
 	}
 	
 	public String getUsername() {
@@ -26,5 +25,13 @@ public class Utente implements Serializable{	//tutte le cose che vado a scrivere
 	
 	public List<String> getTags(){
 		return this.tags;
+	}
+	
+	public void setWincoins(float val) {
+		wincoins += val;
+	}
+	
+	public float getWincoins() {
+		return this.wincoins;
 	}
 }

@@ -71,6 +71,10 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						System.err.println("ERROR: User not logged in");
 						break;
 					}
+					if(splitCommand.length != 2) {
+						System.err.println("ERROR: Usage list followers/users/following");
+						break;
+					}
 					if(splitCommand[1].equals("users")) {
 						listUsers(command, socketChannel);
 					}
@@ -118,7 +122,16 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						System.err.println("ERROR: User not logged in");
 						break;
 					}
-					else showFeed(command, socketChannel);
+					if(splitCommand.length == 1 || splitCommand.length > 3) {
+						System.err.println("ERROR: Usage: show feed/post <idPost>");
+						break;
+					}
+					if(splitCommand[1].equals("feed")){
+						showFeed(command, socketChannel);
+					}
+					if(splitCommand[1].equals("post")) {
+						showPost(command, socketChannel);
+					}
 					break;
 					
 				case "blog":
@@ -127,6 +140,38 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						break;
 					}
 					else viewBlog(command, socketChannel);
+					break;
+					
+				case "rate":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else ratePost(command, socketChannel);
+					break;
+					
+				case "comment":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else addComment(command, socketChannel);
+					break;
+					
+				case "delete":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else deletePost(command, socketChannel);
+					break;
+					
+				case "rewin":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else rewin(command, socketChannel);
 					break;
 					
 				case "help":
@@ -280,6 +325,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		}
 		
 		System.out.println("-----------FEED-------------");
+		System.out.println("IDPOST  AUTORE  TITOLO");
 		for(Post p : res.getList()) {
 			System.out.println(p.getId()+"\t"+p.getAutore()+"\t"+p.getTitolo());
 		}
@@ -298,9 +344,65 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		}
 		
 		System.out.println("-----------BLOG-------------");
+		System.out.println("IDPOST  AUTORE   TITOLO");
 		for(Post p : res.getList()) {
 			System.out.println(p.getId()+"\t"+p.getAutore()+"\t"+p.getTitolo());
 		}
+	}
+	
+	public static void ratePost(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		if(res.equals("OK"))
+			System.out.println("Post votato");
+		else System.out.println(res);
+	}
+	
+	public static void addComment(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		if(res.equals("OK"))
+			System.out.println("Commento aggiunto");
+		else System.out.println(res);
+	}
+	
+	public static void showPost(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseMessage<Post> res = (ResponseMessage<Post>) ois.readObject();
+		if(!res.getCode().equals("OK"))
+			System.out.println(res.getCode());
+		else {
+			System.out.println("Titolo: " + res.getList().get(0).getTitolo());
+			System.out.println("Contenuto: " + res.getList().get(0).getContenuto());
+			System.out.println("Upvotes: " + res.getList().get(0).getUpvote());
+			System.out.println("Downvotes: " + res.getList().get(0).getDownvote());
+			System.out.println("Commenti: ");
+			for(Comment c : res.getList().get(0).getComments()) {
+				System.out.println(c.getAutore()+": "+c.getCommento());
+			}
+		}
+	}
+	
+	public static void deletePost(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		if(res.equals("OK"))
+			System.out.println("Post cancellato");
+		else System.out.println(res);
+	}
+	
+	public static void rewin(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		String res = (String) ois.readObject();
+		if(res.equals("OK"))
+			System.out.println("Post rewin");
+		else System.out.println(res);
 	}
 	
 	public static void help() {
@@ -313,7 +415,11 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		System.out.println("list following: lista degli utenti che segui");
 		System.out.println("follow <username>: segui un utente");
 		System.out.println("unfollow <username>: smetti di seguire un utente");
+		System.out.println("post <titolo> <contenuto>: scrivi un post");
+		System.out.println("show feed: mostra la lista dei post degli utenti che segui");
+		System.out.println("blog: mostra la lista dei tuoi post");
 		System.out.println("quit: esci");
+		
 		//System.out.println("");
 	}
 	

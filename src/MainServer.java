@@ -20,6 +20,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
+
+
 
 
 
@@ -37,7 +40,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	private static List<Utente> registeredUsers;
 	private static Map<String, ArrayList<String>> followers;
 	private static Map<String, ArrayList<String>> following;
-	private static Map<String, ArrayList<Post>> listPosts;
+	private static Map<Integer, Post> listPosts;
+	private final List<multicastConnectInfo> Multicastsockets;
 	private static int IdPost;
 	
 	
@@ -50,7 +54,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		followers = new HashMap<>();
 		following = new HashMap<>();
 		listPosts = new HashMap<>();
-		IdPost = 0;
+		this.Multicastsockets = new ArrayList<>();
+		IdPost = 1;
 	}
 	
 	
@@ -200,10 +205,16 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							break;
 						
 						case "post":
-							if(split_str.length != 3)
+							List<String> splitString = new ArrayList<>();
+							Pattern pattern = Pattern.compile("'(.*?)'");
+							java.util.regex.Matcher matcher = pattern.matcher(str_received);
+							while(matcher.find()) {
+								splitString.add(matcher.group(1));
+							}
+							if(splitString.size() != 2)
 								resString = "ERROR: Usage: post <titolo> <contenuto>";
 							else {
-								resString = createPost((String)key.attachment(), split_str[1], split_str[2]);
+								resString = createPost((String)key.attachment(), splitString.get(0), splitString.get(1));
 							}
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
@@ -213,16 +224,30 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							
 						case "show":
 							ResponseMessage<Post> resPosts = null;
+							int idd = 0;
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
-							
-							if(split_str[1].equals("feed")) {
-								if(split_str.length != 2)
-									resPosts = new ResponseMessage<>("ERROR: Usage: show feed", null);
-								resPosts = showFeed((String)key.attachment());
-								oos.writeObject(resPosts);
+							if(split_str.length == 1 || split_str.length > 3)
+								resPosts = new ResponseMessage<>("ERROR: Usage: show feed/post <idpost>PD", null);
+							else {
+								if(split_str[1].equals("feed")) {
+									resPosts = showFeed((String)key.attachment());
+								}
+								
+								if(split_str[1].equals("post")) {
+									if(split_str.length != 3)
+										resPosts = new ResponseMessage<>("ERROR: Usage: show post <idpost>", null);
+									else {
+										try {
+											idd = Integer.parseInt(split_str[2]);
+											resPosts = showPost((String)key.attachment(), idd);
+										}catch(NumberFormatException e) {
+											resPosts = new ResponseMessage<>("ERROR: idpost must be a number", null);
+										}
+									}
+								}
 							}
-							
+							oos.writeObject(resPosts);
 							res = baos.toByteArray();
 							break;
 							
@@ -237,13 +262,92 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							res = baos.toByteArray();
 							break;
 							
+						case "rate":
+							int id = 0, vote;
+							if(split_str.length != 3)
+								resString = "ERROR: Usage: rate <idpost> <voto>";
+							else {
+								try {
+									id = Integer.parseInt(split_str[1]);
+									vote = Integer.parseInt(split_str[2]);
+									resString = ratePost((String)key.attachment(), id, vote);
+								}catch(NumberFormatException e) {
+									resString = "ERROR: id and vote must be a number";
+								}
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+							
+						case "comment":
+							int i;
+							List<String> splitStringg = new ArrayList<>();
+							Pattern pat = Pattern.compile("'(.*?)'");
+							java.util.regex.Matcher mat = pat.matcher(str_received);
+							while(mat.find()) {
+								splitStringg.add(mat.group(1));
+							}
+							if(splitStringg.size() != 1)
+								resString = "ERROR: Usage: comment <idPost> <comment>";
+							else {
+								try {
+									i = Integer.parseInt(split_str[1]);
+									resString = addComment((String)key.attachment(), i, splitStringg.get(0));
+								}catch(NumberFormatException e) {
+									resString = "ERROR: idPost must be a number";
+								}
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+						case "delete":
+							int j;
+							if(split_str.length != 2)
+								resString = "ERROR: Usage: delete <idPost>";
+							else {
+								try {
+									j = Integer.parseInt(split_str[1]);
+									resString = deletePost((String)key.attachment(), j);
+								}catch(NumberFormatException e) {
+									resString = "ERROR: IdPost must be a number";
+								}
+								
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+							
+						case "rewin":
+							int p;
+							if(split_str.length != 2)
+								resString = "ERROR: Usage: rewin <idPost>";
+							else {
+								try {
+									p = Integer.parseInt(split_str[1]);
+									resString = rewin((String)key.attachment(), p);
+								}catch(NumberFormatException e) {
+									resString = "ERROR: IdPost must be a number";
+								}
+							}
+							baos = new ByteArrayOutputStream();
+							oos = new ObjectOutputStream(baos);
+							oos.writeObject(resString);
+							res = baos.toByteArray();
+							break;
+							
 						case "quit":
 							if(key.attachment() != null)
 								logout((String)key.attachment());
 							client.close();
 							key.cancel();
 							break;
-						default:	//da rifare
+						default:
 							resString = "ERROR: Command not found";
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
@@ -428,14 +532,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			return "ERROR: la lunghezza del contenuto deve essere di massimo 500 caratteri";
 		
 		Post post = new Post(IdPost, user, title, contenuto);
+		listPosts.put(IdPost, post);
 		IdPost++;
-		
-		if(!listPosts.containsKey(user)) {
-			listPosts.put(user, new ArrayList<>());
-		}
-		
-		listPosts.get(user).add(post);
-		
 		return "OK";
 	}
 	
@@ -443,14 +541,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 		if(listPosts.isEmpty())
 			return new ResponseMessage<>("Non ci sono post nel social", null);
-		
 		List<Post> postInFeed = new ArrayList<>();
 		
 		for(var entry : listPosts.entrySet()) {
-			if(following.get(user).contains(entry.getKey())) {	//se l'utente segue la chiave
-				for(Post p : entry.getValue()) {
-					postInFeed.add(p);
-				}
+			if(following.get(user).contains(entry.getValue().getAutore()) || doUserFollowAnyRewiner(user, entry.getValue().getId())) {	//se chi ha richiesto il feed segue l'autore del post corrente
+				postInFeed.add(entry.getValue());
 			}
 		}
 		if(postInFeed.isEmpty())
@@ -461,17 +556,94 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	public static ResponseMessage<Post> viewBlog(String user){
 		if(listPosts.isEmpty())
 			return new ResponseMessage<>("Non ci sono post nel social", null);
-		if(!listPosts.containsKey(user))
-			return new ResponseMessage<>("Non hai creato nessun post", null);
 		
 		List<Post> myPosts = new ArrayList<>();
 
-		for(Post p : listPosts.get(user))
-			myPosts.add(p);
+		for(var entry : listPosts.entrySet()) {
+			if(entry.getValue().getAutore().equals(user) || entry.getValue().getRewiners().contains(user)) {
+				myPosts.add(entry.getValue());
+			}
+		}
 		
 		if(myPosts.isEmpty())
 			return new ResponseMessage<>("Non hai post nel blog", myPosts);
 		return new ResponseMessage<>("OK", myPosts);
+	}
+	
+	public static String ratePost(String user, int idPost, int vote) {
+		if(vote != 1 && vote != -1)
+			return "ERROR: Vote must be 1 or -1";
+		if(!listPosts.containsKey(idPost))
+			return "ERROR: IdPost non esistente";
+		if(listPosts.get(idPost).getAutore().equals(user))
+			return "ERROR: Non puoi votare un post di cui sei autore";
+		if(!following.get(user).contains(listPosts.get(idPost).getAutore()))
+			if(!doUserFollowAnyRewiner(user, idPost))
+				return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
+		if(listPosts.get(idPost).getVoters().contains(user))
+			return "ERROR: hai gia votato questo post";
+		
+		if(vote == 1)
+			listPosts.get(idPost).setUpvote(vote);
+		else listPosts.get(idPost).setDownvote(vote);
+		
+		listPosts.get(idPost).addVoters(user);
+		return "OK";
+		
+	}
+	
+	public static String addComment(String user, int idPost, String comment) {
+		if(!listPosts.containsKey(idPost))
+			return "ERROR: IdPost non esistente";
+		if(listPosts.get(idPost).getAutore().equals(user))
+			return "ERROR: Non puoi commentare un post di cui sei autore";
+		if(!following.get(user).contains(listPosts.get(idPost).getAutore()))
+			if(!doUserFollowAnyRewiner(user, idPost))
+				return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
+		
+		listPosts.get(idPost).addComment(user, comment);
+		return "OK";
+	}
+	
+	public static ResponseMessage<Post> showPost(String user, int idpost){
+		if(!listPosts.containsKey(idpost))
+			return new ResponseMessage<>("IdPost non esistente", null);
+		if(!following.get(user).contains(listPosts.get(idpost).getAutore()))	//se l'user che richiede non segue l'autore del post e non segue qualcuno che l ha retwittato
+			if(!doUserFollowAnyRewiner(user, idpost))
+				return new ResponseMessage<>("ERROR: Non segui l'autore del post e nessun rewiner del post", null);
+		//utilizzo una lista perche cosi e' il tipo ResponseMessage, ma in questo caso e' formata solo da un post
+		List<Post> post = new ArrayList<>();
+		post.add(listPosts.get(idpost));
+		return new ResponseMessage<>("OK", post);
+	}
+	
+	public static String deletePost(String user, int idpost) {
+		if(!listPosts.containsKey(idpost))
+			return "ERROR: IdPost non esistente";
+		if(!listPosts.get(idpost).getAutore().equals(user))
+			return "ERROR: Non puoi cancellare un post di cui non sei autore";
+		
+		listPosts.remove(idpost);
+		return "OK";
+	}
+	
+	public static String rewin(String user, int idpost) {
+		if(!listPosts.containsKey(idpost))
+			return "ERROR: IdPost non esistente";
+		if(!following.get(user).contains(listPosts.get(idpost).getAutore()))	//se l'utente segue l'autore del post da retwittare
+			if(!doUserFollowAnyRewiner(user, idpost))
+				return "ERROR: Non segui l autore del post";
+		
+		listPosts.get(idpost).addRewiner(user);
+		return "OK";
+	}
+	
+	public static boolean doUserFollowAnyRewiner(String user, int idpost) {
+		for(String u : following.get(user)) {
+			if(listPosts.get(idpost).getRewiners().contains(u))
+				return true;
+		}
+		return false;
 	}
 	
 	public synchronized void registerForCallback(InterfaceNotifyEvent clientInterface, String username) throws RemoteException{	
