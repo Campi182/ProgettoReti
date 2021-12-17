@@ -1,7 +1,10 @@
 import java.io.Serializable;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class Post implements Serializable{
@@ -12,8 +15,8 @@ public class Post implements Serializable{
 	private String contenuto;
 	private int upvote;
 	private int downvote;
-	private Set<String> voters;
-	private List<Comment> commenti;
+	private Map<String, Voto> voti;
+	private Map<String, List<Comment>> commenti;
 	private Set<String> rewiners;
 	
 	public Post(int IdPost, String creator, String title, String content) {
@@ -21,8 +24,8 @@ public class Post implements Serializable{
 		this.autore = creator;
 		this.titolo = title;
 		this.contenuto = content;
-		voters = new HashSet<>();
-		commenti = new ArrayList<>();
+		voti = new HashMap<>();
+		commenti = new HashMap<>();
 		rewiners = new HashSet<>();
 	}
 	
@@ -50,13 +53,6 @@ public class Post implements Serializable{
 		return this.downvote;
 	}
 	
-	public Set<String> getVoters(){
-		return this.voters;
-	}
-	public List<Comment> getComments(){
-		return this.commenti;
-	}
-	
 	public Set<String> getRewiners(){
 		return this.rewiners;
 	}
@@ -69,16 +65,41 @@ public class Post implements Serializable{
 		this.downvote += vote;
 	}
 	
-	public void addVoters(String user) {
-		this.voters.add(user);
+	public void addVote(String user, Voto voto) {
+		voti.put(user, voto);
+	}
+	
+	public Set<String> getVoters(){
+		return voti.keySet();
+	}
+	
+	public Set<Voto> getVoti(){
+		Set<Voto> res = new HashSet<>();
+		for(var entry : voti.entrySet())
+			res.add(entry.getValue());
+		return res;
 	}
 	
 	public void addRewiner(String user) {
 		this.rewiners.add(user);
 	}
 	
-	public void addComment(String autore, String commento) {
-		Comment comm = new Comment(autore, commento);
-		this.commenti.add(comm);
+	public void addComment(String autore, String commento, Timestamp timestamp) {
+		Comment comm = new Comment(autore, commento, timestamp);
+		if(!commenti.containsKey(autore))
+			commenti.put(autore, new ArrayList<>());
+		commenti.get(autore).add(comm);
+	}
+	
+	public Map<String, List<Comment>> getMapComments(){
+		return this.commenti;
+	}
+	
+	public List<Comment> getComments(){
+		List<Comment> res = new ArrayList<>();
+		for(var entry : commenti.entrySet())
+			for(Comment c : entry.getValue())
+				res.add(c);
+		return res;
 	}
 }

@@ -1,4 +1,3 @@
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.InetSocketAddress;
@@ -9,19 +8,29 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.RemoteObject;
+import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
 public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private static int PORT = 6789;
-	private static String currentUser;
 	private static List<String> tags = new ArrayList<String>();
-	
 	private static List<String> followers;
 	
-	public static void main(String[] args) {
+	private static final String ServerAddress = "127.0.0.1";
+	private final List<multicastConnectInfo> Multicastsockets;
+	
+	public MainClient() {
+		this.Multicastsockets = new ArrayList<>();
+	}
+	
+	public void start(){
 		boolean logged = false;
 		boolean var = true;	//variabile per il ciclo while. con quit esco
 		boolean response;
@@ -35,11 +44,14 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			Scanner in = new Scanner(System.in);
 			
 			socketChannel = SocketChannel.open();
-			socketChannel.connect(new InetSocketAddress("localhost", PORT));
+			socketChannel.connect(new InetSocketAddress(ServerAddress, PORT));
+			
+			//Callback
+			InterfaceNotifyEvent callbackObj = this;
+			InterfaceNotifyEvent stubCallback = (InterfaceNotifyEvent) UnicastRemoteObject.exportObject(callbackObj, 0);
 			
 			System.out.println("Benvenuto su WINSOME.\nLogin o Registrati");
-			
-			
+				
 			while(var) {
 				String command = in.nextLine();
 				String[] splitCommand = command.split(" ");
@@ -54,8 +66,11 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						break;
 					}
 					response = login(command, socketChannel);
-					if(response)
+					if(response) {
 						logged = true;
+						System.out.println("Register for callback");
+						stub.registerForCallback(stubCallback, splitCommand[1]);
+					}
 					break;
 				case "logout":
 					if(!logged) {
@@ -63,8 +78,11 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						break;
 					}
 					response = logout(command, socketChannel);
-					if(response)
+					if(response) {
 						logged = false;
+						System.out.println("Unregister for callback");
+						stub.unregisterForCallback(stubCallback);
+					}
 					break;
 				case "list":		//manca listfollowers e list following
 					if(!logged) {
@@ -174,6 +192,14 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					else rewin(command, socketChannel);
 					break;
 					
+				case "wallet":
+					if(!logged) {
+						System.err.println("ERROR: User not logged in");
+						break;
+					}
+					else getWallet(command, socketChannel);
+					break;
+					
 				case "help":
 					help();
 					break;
@@ -183,10 +209,17 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					var = false;
 					break;
 				default:
-					System.out.println("ERROR: invalid command");
+					socketChannel.write(ByteBuffer.wrap(command.getBytes(StandardCharsets.UTF_8)));
+					ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+					String res = ((String) ois.readObject()).trim();
+					System.out.println(res);
 					break;
 				}
 			}
+			
+			System.out.println("CALLBACK: Unregister for callback");
+			stub.unregisterForCallback(stubCallback);
+			System.exit(0);
 		} catch(Exception e) {
 			e.printStackTrace();
 		}
@@ -205,7 +238,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	}
 
 	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
-		String[] str_split = cmd.split(" ");
+		//String[] str_split = cmd.split(" ");
 		//Send
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		//Receive
@@ -214,7 +247,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		ResponseMessage<String> response = (ResponseMessage<String>) ois.readObject();
 		if(response.getCode().equals("OK")) {
 			System.out.println(response.getCode());
-			currentUser = str_split[1];
+			//currentUser = str_split[1];
 			followers = response.getList();	//preso la lista dei followers dal server
 			return true;
 		}
@@ -405,6 +438,21 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		else System.out.println(res);
 	}
 	
+	public void getWallet(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseWallet<Transaction> res = (ResponseWallet<Transaction>) ois.readObject();
+		if(!res.getCode().equals("OK"))
+			System.out.println(res.getCode());
+		else {
+			System.out.println("TOTALE NEL PORTAFOGLIO: " + Math.round(res.getGuadagno()*100.0)/100.0+" euro");
+			if(res.getList() != null && !res.getList().isEmpty())
+				for(Transaction t : res.getList()) 
+					System.out.println(t.getTimestamp() + "  GUADAGNO: " + t.getValue()+" euro");
+		}
+	}
+	
 	public static void help() {
 		System.out.println("------------------------COMANDS GUIDE-----------------");
 		System.out.println("register <username> <password> <tags> : Registra un nuovo utente nel sistema");
@@ -423,10 +471,16 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		//System.out.println("");
 	}
 	
-	public void notifyEventListFollowers(String username) {
-		if(!(followers.contains(username)))
+	public void notifyEventListFollowers(String username, int op) {	//update list of followers	op = 1 -> follow / 0->unfollow
+		System.out.println("CALLBACK: Followers list update event");
+		if(op == 1)
 			followers.add(username);
 		else followers.remove(username);
+	}
+	
+	public static void main(String[] args) {
+		MainClient client = new MainClient();
+		client.start();
 	}
 	
 }
