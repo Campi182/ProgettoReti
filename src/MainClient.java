@@ -1,6 +1,11 @@
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
@@ -19,15 +24,21 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	 * 
 	 */
 	private static final long serialVersionUID = 1L;
-	private static int PORT = 6789;
-	private static List<String> tags = new ArrayList<String>();
+	private static final int PORTTCP = 6789;
 	private static List<String> followers;
-	
+	private MulticastSocket ms;
+	private InetAddress multicastGroup;
 	private static final String ServerAddress = "127.0.0.1";
-	private final List<multicastConnectInfo> Multicastsockets;
 	
 	public MainClient() {
-		this.Multicastsockets = new ArrayList<>();
+		try {
+			multicastGroup = InetAddress.getByName("226.226.226.226");
+			ms = new MulticastSocket(1025);
+			ms.joinGroup(multicastGroup);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	}
 	
 	public void start(){
@@ -44,7 +55,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			Scanner in = new Scanner(System.in);
 			
 			socketChannel = SocketChannel.open();
-			socketChannel.connect(new InetSocketAddress(ServerAddress, PORT));
+			socketChannel.connect(new InetSocketAddress(ServerAddress, PORTTCP));
 			
 			//Callback
 			InterfaceNotifyEvent callbackObj = this;
@@ -69,7 +80,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					if(response) {
 						logged = true;
 						System.out.println("Register for callback");
-						stub.registerForCallback(stubCallback, splitCommand[1]);
+						stub.registerForCallback(stubCallback, splitCommand[1]);	//mi registro per le callback dei followers
 					}
 					break;
 				case "logout":
@@ -227,6 +238,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	
 	public static void Registrazione(String[] command, InterfaceServerRMI stub) throws RemoteException{
 		String result;
+		List<String> tags = new ArrayList<>();
 		if(command.length < 3 || command.length > 8) {
 			System.err.println("ERROR. Usage registrati: register [username] [password] [tags]");
 		} else {
@@ -271,7 +283,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			System.out.println(res.getCode());
 			return;
 		}
-		
+
 		System.out.println("Users | Tags");
 		for(Utente u : res.getList())
 			System.out.println(u.getUsername() + " : " + u.getTags());
@@ -477,6 +489,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			followers.add(username);
 		else followers.remove(username);
 	}
+
 	
 	public static void main(String[] args) {
 		MainClient client = new MainClient();

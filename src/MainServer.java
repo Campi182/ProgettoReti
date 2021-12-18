@@ -1,21 +1,33 @@
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.RemoteObject;
 import java.rmi.server.UnicastRemoteObject;
 import java.sql.Timestamp;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -25,7 +37,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
-
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 
 
@@ -35,17 +48,32 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	//------------------------strutture dati e variabili----------------- //
 	private static final long serialVersionUID = 1L;
 	
+	//variabili dal configfile
+	private static String indServer;
+	private static int TCPPORT;
+	private static int UDPPORT;
+	private static int MCASTPORT;
+	private static String indMulticast;
+	private static String regHost;
+	private static int regPort;
+	private static int timeout;
+	private static int ricompensaAutore;
+	private static int periodoCalcolo;
+	
+	
+	public static final String registrationInfoFile = "registration.json";
 	private static int PORT = 6789; //!!DA PRENDERE DAL CONFIG FILE
 	private static Selector selector = null;
 	private static List<CallbackInfo> clients; 
 
+	private static GsonBuilder builder;
+	private static Gson gson;
 	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
 	//Utente <username, password, tags>
 	private static List<Utente> registeredUsers;
 	private static Map<String, ArrayList<String>> followers;
 	private static Map<String, ArrayList<String>> following;
 	private static Map<Integer, Post> listPosts;
-	private final List<multicastConnectInfo> Multicastsockets;
 	private static int IdPost;
 	
 	
@@ -58,8 +86,9 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		followers = new HashMap<>();
 		following = new HashMap<>();
 		listPosts = new HashMap<>();
-		this.Multicastsockets = new ArrayList<>();
 		IdPost = 1;
+		builder = new GsonBuilder();
+		gson = builder.create();
 	}
 	
 	
@@ -82,12 +111,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			
 			selector = Selector.open();
 			SelectionKey clientKey = serverSocket.register(selector, SelectionKey.OP_ACCEPT);
-			
-			
 			System.out.println("SERVER IS ON");
-
-			
-			
 			while(true) {
 				try {
 					selector.select();
@@ -401,9 +425,47 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		registeredUsers.add(user);
 		followers.put(username, new ArrayList<>());
 		following.put(username, new ArrayList<>());
+		
+		//Scrivo nel file json i dati
+		try(FileOutputStream os = new FileOutputStream(registrationInfoFile);
+			FileChannel oc = os.getChannel();
+				){
+			ByteBuffer buf = ByteBuffer.allocate(8192);
+			
+			byte[] data = gson.toJson(user).getBytes();
+			for(int l = 0; l < data.length; l+=8192) {
+				buf.clear();
+				buf.put(data, l, Math.min(8192, data.length-1));
+				buf.flip();
+				while(buf.hasRemaining()) oc.write(buf);
+			}
+			
+			
+		}catch(FileNotFoundException e) {
+			System.err.println("File non trovato: " + e.getMessage());
+			System.exit(1);
+		}catch (IOException e) {
+			System.err.println("Errore di I/O: " + e.getMessage());
+			System.exit(1);
+		}
 		return "Registration success";
 	}
-
+	
+	
+	/**
+     *  Metodo per scrivere un singolo carattere sul canale.
+     *  @param channel riferimento al canale su cui scrivere
+     *  @param c il carattere da scrivere
+     */
+    public static void writeChar(FileChannel channel, char c)
+    throws IOException {
+        CharBuffer charBuffer = CharBuffer.wrap(new char[]{c});
+        ByteBuffer byteBuffer = Charset.forName("UTF-8").encode(charBuffer);
+        // Leggo il contenuto del buffer e lo scrivo sul canale.
+        channel.write(byteBuffer);
+    }
+    
+    
 	public ResponseMessage<String> login(String username, String password) {
 
 		String code = null;
@@ -444,16 +506,17 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		List<Utente> UsersCommonTags = new ArrayList<>();
 		List<String> userTags = new ArrayList<>();
 		
-		for(Utente u : registeredUsers)
+		for(Utente u : registeredUsers)		//prendo i tag dell'utente corrente
 			if(u.getUsername().equals(username)) {
 				userTags = u.getTags();
 			}
 		
 		for(Utente u : registeredUsers) {
-			if(!(u.getUsername().equals(username))) {
+			if(!u.getUsername().equals(username)){
 				for(String t : userTags) {
 					if(u.getTags().contains(t)) {
 						UsersCommonTags.add(u);
+						break;
 					}
 				}
 			}
@@ -485,6 +548,9 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	public String follow(String currUser, String userToFollow) throws RemoteException {
 		if(userToFollow.isEmpty())
 			return "ERROR: username cannot be empty";
+		if(currUser.equals(userToFollow))
+			return "ERROR: Non puoi seguire te stesso";
+		
 		boolean exists = false;
 		for(Utente u : registeredUsers)
 			if(u.getUsername().equals(userToFollow))
@@ -504,6 +570,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	public String unfollow(String currUser, String userToUnfollow) throws RemoteException {
 		if(userToUnfollow.isEmpty())
 			return "ERROR: username cannot be empty";
+		if(currUser.equals(userToUnfollow))
+			return "ERROR: Non puoi unfolloware te stesso";
 		
 		boolean exists = false;
 		for(Utente u : registeredUsers)
@@ -700,6 +768,95 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		System.out.println("CALLBACK SYSTEM: Callback complete");
 	}
 
+	public static void setupServer(String path) throws IOException {
+		File file = new File(path);
+		BufferedReader br = new BufferedReader(new FileReader(file));
+		String str;
+		int port;
+		
+		while((str = br.readLine()) != null) {		//lettura del config file
+			String[] splitLine = str.split(" ");
+			switch(splitLine[0]) {
+			case "#":
+				continue;
+			case "TCPPORT":	
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					TCPPORT = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+				
+			case "UDPPORT":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					TCPPORT = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+			case "MCASTPORT":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					MCASTPORT = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+
+			case "SERVER":
+				indServer = splitLine[2];
+				break;
+				
+			case "MULTICAST":
+				indMulticast = splitLine[2];
+				break;
+				
+			case "REGHOST":
+				regHost = splitLine[2];
+				break;
+				
+			case "REGPORT":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					regPort = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+
+			case "TIMEOUT":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					timeout = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+			
+			case "RICOMPENSAAUTORE":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					ricompensaAutore = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+				
+			case "PERIODOCALCOLO":
+				try {
+					port = Integer.parseInt(splitLine[2]);
+					periodoCalcolo = port;
+				}catch(NumberFormatException e) {
+					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+				}
+				break;
+
+			}
+		}
+	}
+	
 	public static void main(String[] args) {
 		MainServer server = new MainServer();
 		try {
@@ -712,8 +869,14 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			System.err.println("Errore: " + e.getMessage());
 		}
 
+		String path = "./config.txt";
+		try {
+			setupServer(path);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}		
 		ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
-		exec.scheduleAtFixedRate(new MainCalcoloRicompense(listPosts, registeredUsers), 0, 30, TimeUnit.SECONDS);
+		exec.scheduleAtFixedRate(new MainCalcoloRicompense(listPosts, registeredUsers, ricompensaAutore), 0, periodoCalcolo, TimeUnit.SECONDS);
 		server.start();
 	}
 }

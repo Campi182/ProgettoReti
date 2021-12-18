@@ -95,6 +95,10 @@ public class Post implements Serializable{
 		return this.commenti;
 	}
 	
+	public Map<String, Voto> getMapVoti(){
+		return this.voti;
+	}
+	
 	public List<Comment> getComments(){
 		List<Comment> res = new ArrayList<>();
 		for(var entry : commenti.entrySet())
