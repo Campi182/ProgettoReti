@@ -3,9 +3,9 @@ import java.sql.Timestamp;
 
 public class Transaction implements Serializable{
 	private double value;
-	private Timestamp timestamp;
+	private String timestamp;
 	
-	public Transaction(double value, Timestamp timestamp) {
+	public Transaction(double value, String timestamp) {
 		this.value = value;
 		this.timestamp = timestamp;
 	}
@@ -14,7 +14,7 @@ public class Transaction implements Serializable{
 		return this.value;
 	}
 	
-	public Timestamp getTimestamp() {
+	public String getTimestamp() {
 		return this.timestamp;
 	}
 }

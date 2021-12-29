@@ -17,11 +17,13 @@ public class ReadUDPFromServer implements Runnable{
 
 		try {
 			ms.joinGroup(group);
-			ms.setSoTimeout(2000);
+			//ms.setSoTimeout(2000);
 			byte[] buffer = new byte[1024];
-			while(true) {
+			while(!Thread.currentThread().isInterrupted()) {
 				DatagramPacket dp = new DatagramPacket(buffer, buffer.length);
 				ms.receive(dp);
+				if(Thread.currentThread().isInterrupted())
+					return;
 				String s = new String(dp.getData());
 				System.out.println("FROM SERVER: " + s);
 			}

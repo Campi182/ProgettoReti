@@ -1,14 +1,18 @@
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.ObjectOutputStream;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.CancelledKeyException;
@@ -23,9 +27,13 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.RemoteObject;
 import java.rmi.server.UnicastRemoteObject;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
+import java.text.Format;
 import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -39,6 +47,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
 
 
@@ -61,22 +71,20 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	private static int periodoCalcolo;
 	
 	
-	public static final String registrationInfoFile = "registration.json";
+	public static final String dirDatabase = "./Database/";
 	private static int PORT = 6789; //!!DA PRENDERE DAL CONFIG FILE
 	private static Selector selector = null;
 	private static List<CallbackInfo> clients; 
 
-	private static GsonBuilder builder;
-	private static Gson gson;
 	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
-	//Utente <username, password, tags>
 	private static List<Utente> registeredUsers;
-	private static Map<String, ArrayList<String>> followers;
-	private static Map<String, ArrayList<String>> following;
+	private static Map<String, List<String>> followers;
+	private static Map<String, List<String>> following;
 	private static Map<Integer, Post> listPosts;
-	private static int IdPost;
+	private static int IdPostglobal;
 	
-	
+	private static Format formatter;
+	private static SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 	//---------------------------------------------------------------------/
 	
 	//constructor
@@ -86,14 +94,13 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		followers = new HashMap<>();
 		following = new HashMap<>();
 		listPosts = new HashMap<>();
-		IdPost = 1;
-		builder = new GsonBuilder();
-		gson = builder.create();
+		IdPostglobal = 1;
+		formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 	}
 	
 	
 	
-	public void start() {
+	public void start() throws NoSuchAlgorithmException {
 		
 		//RMI setup per registrazione
 		//strutture per spedire le risposte/oggetti al client
@@ -246,13 +253,13 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							if(split_str.length == 1 || split_str.length > 3)
-								resPosts = new ResponseMessage<>("ERROR: Usage: show feed/post <idpost>PD", null);
+								resPosts = new ResponseMessage<>("ERROR: Usage: show feed/post <idpost>", null);
 							else {
 								if(split_str[1].equals("feed")) {
 									resPosts = showFeed((String)key.attachment());
 								}
 								
-								if(split_str[1].equals("post")) {
+								else if(split_str[1].equals("post")) {
 									if(split_str.length != 3)
 										resPosts = new ResponseMessage<>("ERROR: Usage: show post <idpost>", null);
 									else {
@@ -264,6 +271,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 										}
 									}
 								}
+								else resPosts = new ResponseMessage<>("ERROR: Usage show feed/post <idpost>", null);
 							}
 							oos.writeObject(resPosts);
 							res = baos.toByteArray();
@@ -361,9 +369,14 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							
 						case "wallet":
 							ResponseWallet<Transaction> resWallet = null;
-							if(split_str.length != 1)
-								resWallet = new ResponseWallet<>("ERROR: Usage: wallet", null, 0);
-							else resWallet = getWallet((String)key.attachment());
+							if(split_str.length == 1 ) {
+								resWallet = getWallet((String)key.attachment());
+							}
+							else if(split_str.length == 2 && split_str[1].equals("btc")) {
+								resWallet = getWalletInBitcoin((String)key.attachment());
+							}
+							else resWallet = new ResponseWallet<>("ERROR: Usage: wallet / wallet btc", null, 0);
+							
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(resWallet);
@@ -421,72 +434,49 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				return "ERROR: this username already exists";
 		
 		System.out.println("Requested register");
-		Utente user = new Utente(username, password, tags);
+		Utente user = null;
+		try {
+			String cipherpsw = Hash.bytesToHex(Hash.sha256(password));
+			user = new Utente(username, cipherpsw, tags);
+		} catch (NoSuchAlgorithmException e1) {
+			e1.printStackTrace();
+		}
 		registeredUsers.add(user);
 		followers.put(username, new ArrayList<>());
 		following.put(username, new ArrayList<>());
 		
 		//Scrivo nel file json i dati
-		try(FileOutputStream os = new FileOutputStream(registrationInfoFile);
-			FileChannel oc = os.getChannel();
-				){
-			ByteBuffer buf = ByteBuffer.allocate(8192);
-			
-			byte[] data = gson.toJson(user).getBytes();
-			for(int l = 0; l < data.length; l+=8192) {
-				buf.clear();
-				buf.put(data, l, Math.min(8192, data.length-1));
-				buf.flip();
-				while(buf.hasRemaining()) oc.write(buf);
-			}
-			
-			
-		}catch(FileNotFoundException e) {
-			System.err.println("File non trovato: " + e.getMessage());
-			System.exit(1);
-		}catch (IOException e) {
-			System.err.println("Errore di I/O: " + e.getMessage());
-			System.exit(1);
-		}
+		String file = dirDatabase+username+".json";
+		updateDatabase.updateDbUser(file, user);
 		return "Registration success";
 	}
-	
-	
-	/**
-     *  Metodo per scrivere un singolo carattere sul canale.
-     *  @param channel riferimento al canale su cui scrivere
-     *  @param c il carattere da scrivere
-     */
-    public static void writeChar(FileChannel channel, char c)
-    throws IOException {
-        CharBuffer charBuffer = CharBuffer.wrap(new char[]{c});
-        ByteBuffer byteBuffer = Charset.forName("UTF-8").encode(charBuffer);
-        // Leggo il contenuto del buffer e lo scrivo sul canale.
-        channel.write(byteBuffer);
-    }
-    
-    
-	public ResponseMessage<String> login(String username, String password) {
+	    
+	public ResponseMessage<String> login(String username, String password) throws NoSuchAlgorithmException {
 
 		String code = null;
 		boolean tmp = false;
-		List<String> followList;
+		List<String> followList;	//invio all'user la lista dei suoi seguaci
 		
 		if(username.isEmpty() || password.isEmpty())
 			code = "ERROR: Username and password cannot be empty";
 		else {
 			for(Utente u : registeredUsers) {
 				if(u.getUsername().equals(username)) {
-					if(u.getPassword().equals(password)) {		//cambiare controllo della password (deve esserer crittografato)
+					if(u.getPassword().equals(Hash.bytesToHex(Hash.sha256(password)))) {
 						tmp = true;
 						code = "OK";
-					} else code = "ERROR: wrong password";
+					} else {
+						code = "ERROR: wrong password";
+						System.out.println("Utente: " +Hash.bytesToHex(Hash.sha256(u.getPassword())));
+						System.out.println("Scritta: " + Hash.bytesToHex(Hash.sha256(password)));
+					}
 				}
 			}
 		}
 		
-		if(tmp)
+		if(tmp) {
 			followList = new ArrayList<>(followers.get(username));
+		}
 		else followList = null;
 			
 		
@@ -551,20 +541,21 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(currUser.equals(userToFollow))
 			return "ERROR: Non puoi seguire te stesso";
 		
-		boolean exists = false;
-		for(Utente u : registeredUsers)
-			if(u.getUsername().equals(userToFollow))
-				exists = true;
-		
-		if(exists) {
-			if(!following.get(currUser).contains(userToFollow)) {
-				followers.get(userToFollow).add(currUser);
-				following.get(currUser).add(userToFollow);
+		for(Utente u : registeredUsers) {
+			if(u.getUsername().equals(userToFollow)) {
+				if(!following.get(currUser).contains(userToFollow)) {	//se l'utente corrente non segue usertofollow
+					followers.get(userToFollow).add(currUser);
+					following.get(currUser).add(userToFollow);
 					update(currUser, userToFollow, 1);
-				return "OK";
-			} else return "ERROR: Segui gia' quest'utente";
-		} else return "ERROR: user does not exists";
-		
+					
+					String file = dirDatabase+"Follow/";
+					updateDatabase.updateDbFollow(followers, file + "followers.json");
+					updateDatabase.updateDbFollow(following, file + "following.json");
+					return "OK";
+				} else return "ERROR: Segui gia' quest'utente";
+			}
+		}
+		return "ERROR: Quest'utente non esiste";
 	}
 	
 	public String unfollow(String currUser, String userToUnfollow) throws RemoteException {
@@ -573,19 +564,22 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(currUser.equals(userToUnfollow))
 			return "ERROR: Non puoi unfolloware te stesso";
 		
-		boolean exists = false;
-		for(Utente u : registeredUsers)
-			if(u.getUsername().equals(userToUnfollow))
-				exists = true;
 		
-		if(exists) {
-			if(following.get(currUser).contains(userToUnfollow)) {
-				followers.get(userToUnfollow).remove(currUser);
-				following.get(currUser).remove(userToUnfollow);
-				update(currUser, userToUnfollow, 0);
-			}else return "ERROR: Non segui quest'utente";
-			return "OK";
-		} else return "ERROR: user does not exists";
+		for(Utente u : registeredUsers) {
+			if(u.getUsername().equals(userToUnfollow)) {
+				if(following.get(currUser).contains(userToUnfollow)) {
+					followers.get(userToUnfollow).remove(currUser);
+					following.get(currUser).remove(userToUnfollow);
+					update(currUser, userToUnfollow, 0);
+					
+					String file = dirDatabase+"Follow/";
+					updateDatabase.updateDbFollow(followers, file + "followers.json");
+					updateDatabase.updateDbFollow(following, file + "following.json");
+					return "OK";
+				}else return "ERROR: Non segui quest'utente";
+			}
+		}
+		return "ERROR: Quest'utente non esiste";
 	}
 	
 	public String createPost(String user, String title, String contenuto) {
@@ -597,9 +591,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(contenuto.length() > 500)
 			return "ERROR: la lunghezza del contenuto deve essere di massimo 500 caratteri";
 		
-		Post post = new Post(IdPost, user, title, contenuto);
-		listPosts.put(IdPost, post);
-		IdPost++;
+		Post post = new Post(IdPostglobal, user, title, contenuto);
+		listPosts.put(IdPostglobal, post);
+		String path = dirDatabase+"Post/"+Integer.toString(IdPostglobal)+".json";
+		updateDatabase.updateDbPost(post, path);
+		IdPostglobal++;
 		return "OK";
 	}
 	
@@ -650,12 +646,16 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			return "ERROR: hai gia votato questo post";
 		
 		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-		Voto voto = new Voto(vote, timestamp);
+		String s = formatter.format(timestamp);
+		Voto voto = new Voto(vote, s);
 		if(vote == 1)
 			listPosts.get(idPost).setUpvote(vote);
 		else listPosts.get(idPost).setDownvote(vote);
 		
 		listPosts.get(idPost).addVote(user, voto);
+		
+		String path = dirDatabase+"Post/"+Integer.toString(idPost)+".json";
+		updateDatabase.updateDbPost(listPosts.get(idPost), path);
 		return "OK";
 		
 	}
@@ -671,7 +671,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 		
 		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-		listPosts.get(idPost).addComment(user, comment, timestamp);
+		String s = formatter.format(timestamp);
+		listPosts.get(idPost).addComment(user, comment, s);
+		
+		String path = dirDatabase+"Post/"+Integer.toString(idPost)+".json";
+		updateDatabase.updateDbPost(listPosts.get(idPost), path);
 		return "OK";
 	}
 	
@@ -695,6 +699,29 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		return new ResponseWallet<>("ERROR: User not found", null, 0);
 	}
 	
+	public ResponseWallet<Transaction> getWalletInBitcoin(String user){
+		String URL = "https://www.random.org/integers/?num=1&min=1&max=100&col=1&base=10&format=plain&rnd=new";
+		try {
+			java.net.URL url = new URL(URL);
+			InputStream in = url.openStream();
+			BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+			String n = reader.readLine();
+			int cambio = Integer.parseInt(n);	// 1 euro = "cambio" BITCOIN
+			reader.close();
+			in.close();
+			double soldi = 0; double value = 0;
+			for(Utente u : registeredUsers) {
+				if(u.getUsername().equals(user))
+					soldi = u.getWincoins();
+			}
+			value = Math.round((soldi/cambio)*100.000)/100.000;
+			return new ResponseWallet<>("OK", null, value);
+		}catch(Exception e) {
+			e.printStackTrace();
+			return new ResponseWallet<>("ERROR: Exception", null, 0);
+		}
+	}
+	
 	public String deletePost(String user, int idpost) {
 		if(!listPosts.containsKey(idpost))
 			return "ERROR: IdPost non esistente";
@@ -713,6 +740,10 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				return "ERROR: Non segui l autore del post";
 		
 		listPosts.get(idpost).addRewiner(user);
+		
+		String path = dirDatabase+"Post/"+Integer.toString(idpost)+".json";
+		updateDatabase.updateDbPost(listPosts.get(idpost), path);
+		
 		return "OK";
 	}
 	
@@ -734,6 +765,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 	}
 	
+	
 	public synchronized void unregisterForCallback(InterfaceNotifyEvent Client) throws RemoteException{
 		CallbackInfo user = clients.stream().filter(client -> Client.equals(client.getClient())).findAny().orElse(null);
 		
@@ -744,9 +776,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		else System.out.println("Unable to unregister client");
 	}
 	
+	
 	public void update(String currUser, String userToFollow, int op) throws RemoteException{
 		CallbackFollowers(currUser, userToFollow, op);
 	}
+	
 	
 	private synchronized void CallbackFollowers(String currUser, String userToFollow, int op) throws RemoteException{
 		LinkedList<InterfaceNotifyEvent> errors = new LinkedList<>();
@@ -768,7 +802,12 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		System.out.println("CALLBACK SYSTEM: Callback complete");
 	}
 
+	
+	
+	
 	public static void setupServer(String path) throws IOException {
+		
+		//CONFIGURAZIONE DELLE VARIABILI GLOBALI
 		File file = new File(path);
 		BufferedReader br = new BufferedReader(new FileReader(file));
 		String str;
@@ -857,8 +896,283 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		}
 	}
 	
-	public static void main(String[] args) {
+	
+	
+	public static void getBackupData() {
+		Gson gson = new Gson();
+		File directory = new File(dirDatabase);	//directory dove sono memorizzati i file dei profili utente
+		File[] files = directory.listFiles();
+		for(File f : files) {
+			try {
+				if(f.isFile()) {
+					InputStream is = new FileInputStream(f);
+					JsonReader reader = new JsonReader(new InputStreamReader(is));
+					String username = null;
+					String password = null;
+					List<Transaction> transazioni = null;
+					List<String> tags = null;
+					double wincoins = 0;
+					
+					reader.beginObject();
+					while(reader.hasNext()) {
+						String field = reader.nextName();
+						if(field.equals("username"))
+							username = reader.nextString();
+						else if(field.equals("password"))
+							password = reader.nextString();
+						else if(field.equals("tags")) {
+							reader.beginArray();
+							tags = readTags(reader);
+							reader.endArray();
+						}
+						else if(field.equals("wincoins"))
+							wincoins = reader.nextDouble();
+						else if(field.equals("transazioni")) {
+							transazioni = readTransazioni(reader);
+						}
+						else reader.skipValue();
+					}
+					reader.endObject();
+					//reader.close();
+					Utente u = new Utente(username, password, null);
+					registeredUsers.add(u);
+				}
+			}catch(Exception e) {
+				e.printStackTrace();
+			}
+		}
+		
+		File dir2 = new File(dirDatabase+"Post");	//cartella salvataggio Post
+		File[] files2 = dir2.listFiles();
+		for(File f : files2) {
+			try {
+				if(f.isFile()) {
+					InputStream is = new FileInputStream(f);
+					JsonReader reader = new JsonReader(new InputStreamReader(is));
+					String autore = null;
+					String titolo = null;
+					String contenuto = null;
+					int upvote = 0; int downvote = 0; int idPost = 0;
+					Map<String, Voto> voti = new HashMap<>();
+					Map<String, List<Comment>> commenti = new HashMap<>();
+					Set<String> rewiners = new HashSet<>();
+					
+					reader.beginObject();
+					while(reader.hasNext()) {
+						String field = reader.nextName();
+						if(field.equals("IdPost"))
+							idPost = reader.nextInt();
+						if(field.equals("upvote"))
+							upvote = reader.nextInt();
+						if(field.equals("downvote"))
+							downvote = reader.nextInt();
+						if(field.equals("autore"))
+							autore = reader.nextString();
+						if(field.equals("titolo"))
+							titolo = reader.nextString();
+						if(field.equals("contenuto"))
+							contenuto = reader.nextString();
+						if(field.equals("voti")) {
+							reader.beginObject();
+							voti = readVoti(reader);
+							reader.endObject();
+						}
+						if(field.equals("commenti")) {
+							reader.beginObject();
+							commenti = readCommenti(reader);
+							reader.endObject();
+						}
+						if(field.equals("rewiners")) {
+							reader.beginArray();
+							rewiners = readRewiners(reader);
+							reader.endArray();
+						}
+					}
+					reader.endObject();
+					Post p = new Post(idPost, autore, titolo, contenuto);
+					p.setDownvote(downvote);
+					p.setUpvote(upvote);
+					p.setRewiners(rewiners);
+					p.setVoti(voti);
+					p.setCommenti(commenti);
+					listPosts.put(idPost, p);
+				}
+			}catch(Exception e) {
+				e.printStackTrace();
+			}
+		}
+		
+		File fileFollowers = new File(dirDatabase+"Follow/followers.json");
+		File fileFollowing = new File(dirDatabase+"Follow/following.json");
+		try {
+			fileFollowers.createNewFile();
+			fileFollowing.createNewFile();
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+		try {
+			if(fileFollowers.length() != 0) {
+				@SuppressWarnings("unchecked")
+				Map<String, List<String>> f = new Gson().fromJson(new FileReader(fileFollowers), Map.class);
+				followers.putAll(f);
+				@SuppressWarnings("unchecked")
+				Map<String, List<String>> v = new Gson().fromJson(new FileReader(fileFollowing), Map.class);
+				if(!v.isEmpty())
+					following.putAll(v);
+				for(var entry : followers.entrySet())
+					System.out.println("FOLLOWERS " + entry.getKey() +": "+entry.getValue());
+			}
+		}catch(Exception e) {
+			e.printStackTrace();
+		}
+		
+		
+	}
+	
+	public static List<String> readTags(JsonReader reader) throws IOException{
+		List<String> tags = new ArrayList<>();
+		while(reader.hasNext()) {
+			JsonToken nextToken = reader.peek();
+			String tag = null;
+			if(JsonToken.STRING.equals(nextToken)) {
+				tag = reader.nextString();
+				tags.add(tag);
+			} else reader.skipValue();
+		}
+		return tags;
+	}
+	
+	public static Set<String> readRewiners(JsonReader reader) throws IOException{
+		Set<String> rewiners = new HashSet<>();
+		while(reader.hasNext()) {
+			JsonToken nextToken = reader.peek();
+			String name = null;
+			if(JsonToken.STRING.equals(nextToken)) {
+				name = reader.nextString();
+				rewiners.add(name);
+			}else reader.skipValue();
+		}
+		return rewiners;
+	}
+	
+	public static List<Transaction> readTransazioni(JsonReader reader) throws IOException{
+		List<Transaction> transazioni = new ArrayList<>();
+		reader.beginArray();
+		while(reader.hasNext()) {
+			double value = 0;
+			String timestamp = null;
+			reader.beginObject();
+			while(reader.hasNext()) {
+				String field = reader.nextName();
+				if(field.equals("value")) {
+					value = reader.nextDouble();
+				}
+				else if(field.equals("timestamp")) {
+					timestamp = reader.nextString();
+				}
+				else reader.skipValue();
+			}
+			reader.endObject();
+			transazioni.add(new Transaction(value, timestamp));
+		}
+		reader.endArray();
+		return transazioni;
+	}
+	
+	public static Map<String, Voto> readVoti(JsonReader reader) throws IOException {
+		Map<String, Voto> voti = new HashMap<>();
+		
+		while(reader.hasNext()) {
+			String key = null;
+			Voto voto = null;
+			JsonToken nextToken = reader.peek();
+			if(JsonToken.STRING.equals(nextToken)) {
+				int v = 0; 
+				String timestamp = null;
+				key = reader.nextString();
+				reader.beginObject();
+				while(reader.hasNext()) {
+					String field = reader.nextName();
+					if(field.equals("voto"))
+						v = reader.nextInt();
+					if(field.equals("timestamp"))
+						timestamp = reader.nextString();
+				}
+				voto = new Voto(v, timestamp);
+				voti.put(key, voto);
+			} else reader.skipValue();
+		}
+		return voti;
+	}
+	
+	public static Map<String, List<Comment>> readCommenti(JsonReader reader) throws IOException{
+		Map<String, List<Comment>> commenti = new HashMap<>();
+		int ok = 0;
+		String name = null;
+		while(reader.hasNext()) {
+			String key = null;
+			List<Comment> comments = null;
+			while(reader.hasNext()) {
+				JsonToken nextToken = reader.peek();
+				if(ok == 0)
+					name = reader.nextName();
+				if(JsonToken.NAME.equals(nextToken) && ok == 0) {
+					key = name;
+					ok = 1;
+				}else if(ok == 1) {
+					comments = readComm(reader);
+					ok = 2;
+				}
+				else reader.skipValue();
+			}
+			ok = 0;
+			commenti.put(key, comments);
+		}
+		return commenti;
+	}
+	
+	public static List<Comment> readComm(JsonReader reader) throws IOException{
+		List<Comment> ret = new ArrayList<>();
+		reader.beginArray();		
+		while(reader.hasNext()) {
+			String autore = null;
+			String commento = null;
+			String timestamp = null;
+			reader.beginObject();
+			while(reader.hasNext()) {
+				String field = reader.nextName();
+				if(field.equals("autore"))
+					autore = reader.nextString();
+				else if(field.equals("commento"))
+					commento = reader.nextString();
+				else if(field.equals("timestamp"))
+					timestamp = reader.nextString();
+				else reader.skipValue();
+			}
+			reader.endObject();
+			ret.add(new Comment(autore, commento, timestamp));
+		}
+		reader.endArray();
+		return ret;
+	}
+	
+	public static void main(String[] args) throws NoSuchAlgorithmException {
+		
+		if(args.length != 1) {
+			System.err.println("Usage: needs path of config file");
+			System.exit(1);
+		}
+		
 		MainServer server = new MainServer();
+		String path = args[0];
+		try {
+			setupServer(path);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}		
+		
+		getBackupData();
+		
 		try {
 			InterfaceServerRMI stub = (InterfaceServerRMI) UnicastRemoteObject.exportObject(server, 0);
 			LocateRegistry.createRegistry(5000);
@@ -869,12 +1183,6 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			System.err.println("Errore: " + e.getMessage());
 		}
 
-		String path = "./config.txt";
-		try {
-			setupServer(path);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}		
 		ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
 		exec.scheduleAtFixedRate(new MainCalcoloRicompense(listPosts, registeredUsers, ricompensaAutore), 0, periodoCalcolo, TimeUnit.SECONDS);
 		server.start();

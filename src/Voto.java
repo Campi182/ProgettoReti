@@ -4,9 +4,9 @@ import java.sql.Timestamp;
 public class Voto implements Serializable{
 
 	private int voto;
-	private Timestamp timestamp;
+	private String timestamp;
 	
-	public Voto(int voto, Timestamp timestamp) {
+	public Voto(int voto, String timestamp) {
 		this.voto = voto;
 		this.timestamp = timestamp;
 	}
@@ -15,7 +15,7 @@ public class Voto implements Serializable{
 		return this.voto;
 	}
 	
-	public Timestamp getTimestamp() {
+	public String getTimestamp() {
 		return this.timestamp;
 	}
 }

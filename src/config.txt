@@ -22,4 +22,5 @@ TIMEOUT = 100000
 # Percentuale ricompensa autore
 RICOMPENSAAUTORE = 80
 # Periodo calcolo ricompense (in secondi)
-PERIODOCALCOLO = 30
+PERIODOCALCOLO = 4
+

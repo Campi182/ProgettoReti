@@ -5,9 +5,9 @@ public class Comment implements Serializable{
 
 	private String autore;
 	private String commento;
-	private Timestamp timestamp;
+	private String timestamp;
 	
-	public Comment(String autore, String commento, Timestamp timestamp) {
+	public Comment(String autore, String commento, String timestamp) {
 		this.autore = autore;
 		this.commento = commento;
 		this.timestamp = timestamp;
@@ -21,7 +21,7 @@ public class Comment implements Serializable{
 		return this.commento;
 	}
 	
-	public Timestamp getTimestamp() {
+	public String getTimestamp() {
 		return this.timestamp;
 	}
 }

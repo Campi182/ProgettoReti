@@ -11,7 +11,7 @@ public class Utente implements Serializable{	//tutte le cose che vado a scrivere
 	private List<Transaction> transazioni;
 	private double wincoins;
 	
-	public Utente(String username, String password, List<String> tags) {
+	public Utente(String username, String password, List<String> tags){
 		this.username = username;
 		this.password = password;
 		this.tags = tags;
@@ -31,7 +31,7 @@ public class Utente implements Serializable{	//tutte le cose che vado a scrivere
 		return this.tags;
 	}
 	
-	public void setWincoins(double val, Timestamp timestamp) {
+	public void setWincoins(double val, String timestamp) {
 		Transaction action = new Transaction(val, timestamp);
 		transazioni.add(action);
 		this.wincoins += val;

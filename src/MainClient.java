@@ -29,6 +29,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	private MulticastSocket ms;
 	private InetAddress multicastGroup;
 	private static final String ServerAddress = "127.0.0.1";
+	private static Thread t;
 	
 	public MainClient() {
 		try {
@@ -40,7 +41,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			e.printStackTrace();
 		}
 	}
-	
+	 
 	public void start(){
 		boolean logged = false;
 		boolean var = true;	//variabile per il ciclo while. con quit esco
@@ -62,7 +63,8 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			InterfaceNotifyEvent stubCallback = (InterfaceNotifyEvent) UnicastRemoteObject.exportObject(callbackObj, 0);
 			
 			System.out.println("Benvenuto su WINSOME.\nLogin o Registrati");
-				
+
+			
 			while(var) {
 				String command = in.nextLine();
 				String[] splitCommand = command.split(" ");
@@ -208,7 +210,9 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 						System.err.println("ERROR: User not logged in");
 						break;
 					}
-					else getWallet(command, socketChannel);
+					if(splitCommand.length == 1)
+						getWallet(command, socketChannel);
+					else getWalletInBitcoin(command, socketChannel);
 					break;
 					
 				case "help":
@@ -218,6 +222,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 					socketChannel.write(ByteBuffer.wrap(command.getBytes(StandardCharsets.UTF_8)));
 					System.out.println("EXIT OK");
 					var = false;
+					t.interrupt();
 					break;
 				default:
 					socketChannel.write(ByteBuffer.wrap(command.getBytes(StandardCharsets.UTF_8)));
@@ -228,7 +233,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 				}
 			}
 			
-			System.out.println("CALLBACK: Unregister for callback");
+			//System.out.println("CALLBACK: Unregister for callback");
 			stub.unregisterForCallback(stubCallback);
 			System.exit(0);
 		} catch(Exception e) {
@@ -258,9 +263,11 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		@SuppressWarnings("unchecked")
 		ResponseMessage<String> response = (ResponseMessage<String>) ois.readObject();
 		if(response.getCode().equals("OK")) {
-			System.out.println(response.getCode());
+			//System.out.println(response.getCode());
 			//currentUser = str_split[1];
 			followers = response.getList();	//preso la lista dei followers dal server
+			t = new Thread(new ReadUDPFromServer());
+			t.start();
 			return true;
 		}
 		else {
@@ -298,6 +305,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		
 		if(result.equals("OK")) {
 			System.out.println("LOGGED OUT");
+			t.interrupt();
 			return true;
 		} else System.out.println(result);
 		return false;
@@ -312,9 +320,9 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		
 		String res = (String) ois.readObject();
 		
-		if(res.equals("OK"))
-			System.out.println("Ora segui " + str_split[1]);
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Ora segui " + str_split[1]);
+		//else System.out.println(res);
 	}
 	
 	public static void unfollow(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
@@ -325,9 +333,9 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		String res = (String) ois.readObject();
 		
-		if(res.equals("OK"))
-			System.out.println("Non segui piu " + str_split[1]);
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Non segui piu " + str_split[1]);
+		//else System.out.println(res);
 	}
 	
 	public static void listFollowing(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
@@ -399,18 +407,18 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		String res = (String) ois.readObject();
-		if(res.equals("OK"))
-			System.out.println("Post votato");
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Post votato");
+		//else System.out.println(res);
 	}
 	
 	public static void addComment(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		String res = (String) ois.readObject();
-		if(res.equals("OK"))
-			System.out.println("Commento aggiunto");
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Commento aggiunto");
+		//else System.out.println(res);
 	}
 	
 	public static void showPost(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
@@ -436,18 +444,18 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		String res = (String) ois.readObject();
-		if(res.equals("OK"))
-			System.out.println("Post cancellato");
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Post cancellato");
+		//else System.out.println(res);
 	}
 	
 	public static void rewin(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
 		String res = (String) ois.readObject();
-		if(res.equals("OK"))
-			System.out.println("Post rewin");
-		else System.out.println(res);
+		//if(res.equals("OK"))
+			//System.out.println("Post rewin");
+		//else System.out.println(res);
 	}
 	
 	public void getWallet(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
@@ -458,10 +466,22 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		if(!res.getCode().equals("OK"))
 			System.out.println(res.getCode());
 		else {
-			System.out.println("TOTALE NEL PORTAFOGLIO: " + Math.round(res.getGuadagno()*100.0)/100.0+" euro");
+			System.out.println("TOTALE NEL PORTAFOGLIO: " + (double) Math.round(res.getGuadagno()*100.0)/100.0+" euro");
 			if(res.getList() != null && !res.getList().isEmpty())
 				for(Transaction t : res.getList()) 
-					System.out.println(t.getTimestamp() + "  GUADAGNO: " + t.getValue()+" euro");
+					System.out.println(t.getTimestamp() + "  GUADAGNO: " + (double)Math.round(t.getValue()*100.0)/100.0 +" euro");
+		}
+	}
+	
+	public void getWalletInBitcoin(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException{
+		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
+		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
+		@SuppressWarnings("unchecked")
+		ResponseWallet<Transaction> res = (ResponseWallet<Transaction>) ois.readObject();
+		if(!res.getCode().equals("OK")) {
+			System.out.println(res.getCode());
+		} else {
+			System.out.println("Wallet in BITCOIN: " + res.getGuadagno() + " BTC");
 		}
 	}
 	
@@ -484,14 +504,14 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	}
 	
 	public void notifyEventListFollowers(String username, int op) {	//update list of followers	op = 1 -> follow / 0->unfollow
-		System.out.println("CALLBACK: Followers list update event");
+		//System.out.println("CALLBACK: Followers list update event");
 		if(op == 1)
 			followers.add(username);
 		else followers.remove(username);
 	}
 
 	
-	public static void main(String[] args) {
+	public static void main(String[] args) throws IOException {
 		MainClient client = new MainClient();
 		client.start();
 	}

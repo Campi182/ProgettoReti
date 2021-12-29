@@ -84,7 +84,19 @@ public class Post implements Serializable{
 		this.rewiners.add(user);
 	}
 	
-	public void addComment(String autore, String commento, Timestamp timestamp) {
+	public void setRewiners(Set<String> rewiners) {
+		this.rewiners = rewiners;
+	}
+	
+	public void setVoti(Map<String, Voto> voti) {
+		this.voti = voti;
+	}
+	
+	public void setCommenti(Map<String, List<Comment>> commenti) {
+		this.commenti = commenti;
+	}
+	
+	public void addComment(String autore, String commento, String timestamp) {
 		Comment comm = new Comment(autore, commento, timestamp);
 		if(!commenti.containsKey(autore))
 			commenti.put(autore, new ArrayList<>());
