@@ -30,6 +30,7 @@ public class ReadUDPFromServer implements Runnable{
 			System.out.println(e);
 		} finally {
 			if(ms != null) {
+				try {
 					ms.leaveGroup(group);
 					ms.close();
 				}catch(IOException e) {}
