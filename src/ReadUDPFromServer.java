@@ -8,16 +8,15 @@ public class ReadUDPFromServer implements Runnable{
 	private MulticastSocket ms;
 	private InetAddress group;
 	
-	public ReadUDPFromServer() throws IOException {
-		ms = new MulticastSocket(1025);
-		group = InetAddress.getByName("226.226.226.226");
+	public ReadUDPFromServer(int UDPPORT, String MULTICAST) throws IOException {
+		group = InetAddress.getByName(MULTICAST);
+		ms = new MulticastSocket(UDPPORT);
 	}
 	
+	@SuppressWarnings("deprecation")
 	public void run() {
-
-		try {
+		try{
 			ms.joinGroup(group);
-			//ms.setSoTimeout(2000);
 			byte[] buffer = new byte[1024];
 			while(!Thread.currentThread().isInterrupted()) {
 				DatagramPacket dp = new DatagramPacket(buffer, buffer.length);
@@ -29,6 +28,12 @@ public class ReadUDPFromServer implements Runnable{
 			}
 		}catch(Exception e) {
 			System.out.println(e);
+		} finally {
+			if(ms != null) {
+					ms.leaveGroup(group);
+					ms.close();
+				}catch(IOException e) {}
+			}
 		}
 	}
 }

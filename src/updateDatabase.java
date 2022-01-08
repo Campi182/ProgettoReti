@@ -79,4 +79,14 @@ public class updateDatabase {
 				System.exit(1);
 			}
 	}
+
+	public static void deleteFile(String filename) {
+		File f = new File(filename);
+		final String dir = System.getProperty("user.dir");
+        System.out.println("current dir = " + dir);
+		if(f.delete())
+			System.out.println("deleted");
+		else System.err.println("failed");
+	}
+
 }

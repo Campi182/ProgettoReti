@@ -1,9 +1,11 @@
 import java.io.Serializable;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Utente implements Serializable{	//tutte le cose che vado a scrivere negli outputstream devono implementare serializable
+public class Utente implements Serializable{	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 
 	private String username;
 	private String password;
@@ -35,6 +37,14 @@ public class Utente implements Serializable{	//tutte le cose che vado a scrivere
 		Transaction action = new Transaction(val, timestamp);
 		transazioni.add(action);
 		this.wincoins += val;
+	}
+	
+	public void setTransazioni(List<Transaction> transazioni) {
+		this.transazioni = transazioni;
+	}
+	
+	public void setGuadagno(double wincoins) {
+		this.wincoins = wincoins;
 	}
 	
 	public double getWincoins() {

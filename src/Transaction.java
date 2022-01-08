@@ -1,7 +1,10 @@
 import java.io.Serializable;
-import java.sql.Timestamp;
 
 public class Transaction implements Serializable{
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private double value;
 	private String timestamp;
 	

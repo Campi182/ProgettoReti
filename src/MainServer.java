@@ -2,26 +2,19 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.ObjectOutputStream;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.CancelledKeyException;
-import java.nio.channels.FileChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.Charset;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -30,23 +23,21 @@ import java.rmi.server.UnicastRemoteObject;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.text.Format;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 
@@ -59,66 +50,56 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	private static final long serialVersionUID = 1L;
 	
 	//variabili dal configfile
-	private static String indServer;
 	private static int TCPPORT;
 	private static int UDPPORT;
-	private static int MCASTPORT;
-	private static String indMulticast;
-	private static String regHost;
 	private static int regPort;
-	private static int timeout;
+	private static String MCAST;
 	private static int ricompensaAutore;
 	private static int periodoCalcolo;
+	public static String dirDatabase;
 	
+	private static final int bufsize = 8192;
 	
-	public static final String dirDatabase = "./Database/";
-	private static int PORT = 6789; //!!DA PRENDERE DAL CONFIG FILE
-	private static Selector selector = null;
-	private static List<CallbackInfo> clients; 
-
-	//STRUTTURA DATI CHE MEMORIZZA GLI UTENTI REGISTRATI
 	private static List<Utente> registeredUsers;
+	private static List<CallbackInfo> clients; 	//lista dei clients registrati per la callback
 	private static Map<String, List<String>> followers;
 	private static Map<String, List<String>> following;
 	private static Map<Integer, Post> listPosts;
 	private static int IdPostglobal;
 	
 	private static Format formatter;
-	private static SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 	//---------------------------------------------------------------------/
 	
 	//constructor
 	public MainServer() {
-		registeredUsers = new ArrayList<Utente>();
-		clients = new ArrayList<>();
-		followers = new HashMap<>();
-		following = new HashMap<>();
-		listPosts = new HashMap<>();
+		registeredUsers = Collections.synchronizedList(new ArrayList<Utente>());
+		clients = new ArrayList<CallbackInfo>();
+		followers = new ConcurrentHashMap<>();
+		following = new ConcurrentHashMap<>();
+		listPosts = new ConcurrentHashMap<>();
 		IdPostglobal = 1;
 		formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 	}
 	
-	
-	
-	public void start() throws NoSuchAlgorithmException {
+	public void start(){
 		
 		//RMI setup per registrazione
 		//strutture per spedire le risposte/oggetti al client
 		ByteArrayOutputStream baos;
 		ObjectOutputStream oos;
-		byte[] res = new byte[512];
-		
-		String resString;		
+		byte[] res = new byte[bufsize];
+		String resString;
+		int number = 0;
 		
 		try {
 			//Listening per nuove connessioni
 			ServerSocketChannel serverSocket = ServerSocketChannel.open();
-			serverSocket.socket().bind(new InetSocketAddress(PORT));
+			serverSocket.socket().bind(new InetSocketAddress(TCPPORT));
 			serverSocket.configureBlocking(false);
 			
-			selector = Selector.open();
-			SelectionKey clientKey = serverSocket.register(selector, SelectionKey.OP_ACCEPT);
-			System.out.println("SERVER IS ON");
+			Selector selector = Selector.open();
+			serverSocket.register(selector, SelectionKey.OP_ACCEPT);
+			System.out.println("SERVER IS ON - pronto sulla porta "+TCPPORT);
 			while(true) {
 				try {
 					selector.select();
@@ -133,9 +114,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			while(iterator.hasNext()) {
 				SelectionKey key = iterator.next();
 				iterator.remove();
-				
 				try {
-					if(key.isAcceptable()) { //connection request
+					if(key.isAcceptable()) { //accetto la connessione; registro sul selettore il canale
 						ServerSocketChannel srv = (ServerSocketChannel) key.channel();
 						SocketChannel client = srv.accept();
 						client.configureBlocking(false);
@@ -145,12 +125,12 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					}
 					else if(key.isReadable()) { //read request
 						SocketChannel client = (SocketChannel) key.channel();
-						ByteBuffer buffer = ByteBuffer.allocate(1024);
+						ByteBuffer buffer = ByteBuffer.allocate(bufsize);
 						client.read(buffer);
 						
-						String str_received = new String(buffer.array()).trim();
+						String str_received = new String(buffer.array()).trim();	//trasformo in String il buffer
 						String[] split_str = str_received.split(" ");
-						System.out.println("Command requested: " + str_received);
+						System.out.println("Command requested: "+ str_received);
 						
 						switch(split_str[0]) {
 						case "login":
@@ -160,7 +140,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							else {
 								res_Login = login(split_str[1], split_str[2]);
 								if(res_Login.getCode().equals("OK"))
-									key.attach(split_str[1]);	
+									key.attach(split_str[1]);	//al login mi salvo l'username corrente
 							}
 							//Send response
 							baos = new ByteArrayOutputStream();
@@ -189,20 +169,23 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							ResponseMessage<String> res_listFollowing = null;
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
-				
-							if(split_str[1].equals("users")) {	//list users
-								if(split_str.length != 2)
-									res_listUsers = new ResponseMessage<>("ERROR: Usage: list users", null);
+							if(split_str.length != 2) {
+								res_listUsers = new ResponseMessage<>("ERROR: Usage: list users / list following", null);
+								oos.writeObject(res_listUsers);
+							}
+							else if(split_str[1].equals("users")) {
 								res_listUsers = listUsers((String)key.attachment());
 								oos.writeObject(res_listUsers);
 							}
-							
-							if(split_str[1].equals("following")) {
-								if(split_str.length != 2)
-									res_listFollowing = new ResponseMessage<>("ERROR: Usage: list followers", null);
+							else if(split_str[1].equals("following")) {
 								res_listFollowing = listFollowing((String)key.attachment());
 								oos.writeObject(res_listFollowing);
 							}
+							else {
+								res_listUsers = new ResponseMessage<>("ERROR: Usage: list users / list following", null);
+								oos.writeObject(res_listUsers);
+							}
+							
 							res = baos.toByteArray();
 							break;
 							
@@ -217,6 +200,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							oos.writeObject(resString);
 							res = baos.toByteArray();
 							break;
+							
 						case "unfollow":
 							if(split_str.length != 2)
 								resString = "ERROR: Usage: unfollow <username>";
@@ -231,13 +215,15 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 						
 						case "post":
 							List<String> splitString = new ArrayList<>();
+							//ogni parte compresa tra ' ' viene splittata
 							Pattern pattern = Pattern.compile("'(.*?)'");
 							java.util.regex.Matcher matcher = pattern.matcher(str_received);
 							while(matcher.find()) {
 								splitString.add(matcher.group(1));
 							}
+							
 							if(splitString.size() != 2)
-								resString = "ERROR: Usage: post <titolo> <contenuto>";
+								resString = "ERROR: Usage: post '<titolo>' '<contenuto>'";
 							else {
 								resString = createPost((String)key.attachment(), splitString.get(0), splitString.get(1));
 							}
@@ -249,30 +235,25 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							
 						case "show":
 							ResponseMessage<Post> resPosts = null;
-							int idd = 0;
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							if(split_str.length == 1 || split_str.length > 3)
 								resPosts = new ResponseMessage<>("ERROR: Usage: show feed/post <idpost>", null);
-							else {
-								if(split_str[1].equals("feed")) {
+							else if(split_str[1].equals("feed")) {
 									resPosts = showFeed((String)key.attachment());
-								}
-								
-								else if(split_str[1].equals("post")) {
-									if(split_str.length != 3)
-										resPosts = new ResponseMessage<>("ERROR: Usage: show post <idpost>", null);
-									else {
-										try {
-											idd = Integer.parseInt(split_str[2]);
-											resPosts = showPost((String)key.attachment(), idd);
-										}catch(NumberFormatException e) {
-											resPosts = new ResponseMessage<>("ERROR: idpost must be a number", null);
-										}
-									}
-								}
-								else resPosts = new ResponseMessage<>("ERROR: Usage show feed/post <idpost>", null);
 							}
+							else if(split_str[1].equals("post")) {
+								if(split_str.length != 3)
+									resPosts = new ResponseMessage<>("ERROR: Usage: show post <idpost>", null);
+								try {
+									number = Integer.parseInt(split_str[2]);
+									resPosts = showPost((String)key.attachment(), number);
+								}catch(NumberFormatException e) {
+									resPosts = new ResponseMessage<>("ERROR: idpost must be a number", null);
+								}
+							
+							}
+							else resPosts = new ResponseMessage<>("ERROR: Usage show feed/post <idpost>", null);
 							oos.writeObject(resPosts);
 							res = baos.toByteArray();
 							break;
@@ -308,21 +289,25 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							break;
 							
 						case "comment":
-							int i;
 							List<String> splitStringg = new ArrayList<>();
-							Pattern pat = Pattern.compile("'(.*?)'");
-							java.util.regex.Matcher mat = pat.matcher(str_received);
-							while(mat.find()) {
-								splitStringg.add(mat.group(1));
-							}
-							if(splitStringg.size() != 1)
-								resString = "ERROR: Usage: comment <idPost> <comment>";
+							if(split_str.length < 3)
+								resString = "ERROR: Usage: comment <idPost> '<comment>'";
 							else {
-								try {
-									i = Integer.parseInt(split_str[1]);
-									resString = addComment((String)key.attachment(), i, splitStringg.get(0));
-								}catch(NumberFormatException e) {
-									resString = "ERROR: idPost must be a number";
+								//ogni parte compresa tra ' ' viene splittata
+								Pattern pat = Pattern.compile("'(.*?)'");
+								java.util.regex.Matcher mat = pat.matcher(str_received);
+								while(mat.find()) {
+									splitStringg.add(mat.group(1));
+								}
+								if(splitStringg.size() != 1)	//devo avere solo una parte
+									resString = "ERROR: Usage: comment <idPost> '<comment>'";
+								else {
+									try {
+										number = Integer.parseInt(split_str[1]);
+										resString = addComment((String)key.attachment(), number, splitStringg.get(0));
+									}catch(NumberFormatException e) {
+										resString = "ERROR: idPost must be a number";
+									}
 								}
 							}
 							baos = new ByteArrayOutputStream();
@@ -330,14 +315,14 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							oos.writeObject(resString);
 							res = baos.toByteArray();
 							break;
+							
 						case "delete":
-							int j;
 							if(split_str.length != 2)
 								resString = "ERROR: Usage: delete <idPost>";
 							else {
 								try {
-									j = Integer.parseInt(split_str[1]);
-									resString = deletePost((String)key.attachment(), j);
+									number = Integer.parseInt(split_str[1]);
+									resString = deletePost((String)key.attachment(), number);
 								}catch(NumberFormatException e) {
 									resString = "ERROR: IdPost must be a number";
 								}
@@ -350,13 +335,12 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							break;
 							
 						case "rewin":
-							int p;
 							if(split_str.length != 2)
 								resString = "ERROR: Usage: rewin <idPost>";
 							else {
 								try {
-									p = Integer.parseInt(split_str[1]);
-									resString = rewin((String)key.attachment(), p);
+									number = Integer.parseInt(split_str[1]);
+									resString = rewin((String)key.attachment(), number);
 								}catch(NumberFormatException e) {
 									resString = "ERROR: IdPost must be a number";
 								}
@@ -400,15 +384,13 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 						}
 						key.interestOps(SelectionKey.OP_WRITE);
 					}
-					
-					//DA CAMBIARE
 					else if(key.isWritable()) { //write requests
 						//SEND RESPONSE
 						SocketChannel client = (SocketChannel) key.channel();
 						client.write(ByteBuffer.wrap(res));
 						key.interestOps(SelectionKey.OP_READ);
 					}
-				}catch(IOException | CancelledKeyException e) {	//cancelledkey per quando faccio il quit
+				}catch(IOException | CancelledKeyException e) {
 					key.cancel();
 					try {
 						key.channel().close();
@@ -428,30 +410,37 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	public String register(String username, String password, List<String> tags) throws RemoteException{
 		if(username.isEmpty() || password.isEmpty())
 			return "ERROR: Username and password cannot be empty";
-		
-		for(Utente u : registeredUsers)
-			if(u.getUsername().equals(username))
-				return "ERROR: this username already exists";
-		
-		System.out.println("Requested register");
 		Utente user = null;
-		try {
-			String cipherpsw = Hash.bytesToHex(Hash.sha256(password));
-			user = new Utente(username, cipherpsw, tags);
-		} catch (NoSuchAlgorithmException e1) {
-			e1.printStackTrace();
+		
+		synchronized (registeredUsers) {
+			for(Utente u : registeredUsers)
+				if(u.getUsername().equals(username))
+					return "ERROR: this username already exists";
+			
+			try {
+				String cipherpsw = Hash.bytesToHex(Hash.sha256(password));
+				user = new Utente(username, cipherpsw, tags);
+			} catch (NoSuchAlgorithmException e1) {
+				e1.printStackTrace();
+			}
+			registeredUsers.add(user);
 		}
-		registeredUsers.add(user);
-		followers.put(username, new ArrayList<>());
-		following.put(username, new ArrayList<>());
+		
+		followers.putIfAbsent(username, new ArrayList<>());
+		following.putIfAbsent(username, new ArrayList<>());
 		
 		//Scrivo nel file json i dati
-		String file = dirDatabase+username+".json";
+		String file = dirDatabase+"Users/"+username+".json";
 		updateDatabase.updateDbUser(file, user);
+		
+		String file1 = dirDatabase+"Follow/";
+		updateDatabase.updateDbFollow(followers, file1 + "followers.json");
+		updateDatabase.updateDbFollow(following, file1 + "following.json");
+		
 		return "Registration success";
 	}
 	    
-	public ResponseMessage<String> login(String username, String password) throws NoSuchAlgorithmException {
+	public ResponseMessage<String> login(String username, String password){
 
 		String code = null;
 		boolean tmp = false;
@@ -462,59 +451,61 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		else {
 			for(Utente u : registeredUsers) {
 				if(u.getUsername().equals(username)) {
-					if(u.getPassword().equals(Hash.bytesToHex(Hash.sha256(password)))) {
-						tmp = true;
-						code = "OK";
-					} else {
-						code = "ERROR: wrong password";
-						System.out.println("Utente: " +Hash.bytesToHex(Hash.sha256(u.getPassword())));
-						System.out.println("Scritta: " + Hash.bytesToHex(Hash.sha256(password)));
+					try {
+						if(u.getPassword().equals(Hash.bytesToHex(Hash.sha256(password)))) {
+							tmp = true;
+							code = "OK";
+						} else code = "ERROR: wrong password";
+					}catch(NoSuchAlgorithmException e) {
+						code = "ERROR: NoSuchAlgorithmException";
 					}
 				}
 			}
 		}
 		
-		if(tmp) {
+		//se l'utente non e' presente nelle Map non posso inviargli la sua lista dei followers
+		if(tmp && followers.containsKey(username)) {
 			followList = new ArrayList<>(followers.get(username));
 		}
 		else followList = null;
+		 			
 			
-		
 		if(!tmp && code == null) 
 			code = "ERROR: User not found, register first";
-					
-		
+	
 		return new ResponseMessage<>(code, followList);
 	}
 	
 	public ResponseMessage<Utente> listUsers(String username) {
-		System.out.println(username+" ha richiesto la lista");
-		
 		if(registeredUsers.isEmpty())
 			return new ResponseMessage<>("No Users Registered", null);
 		
-		List<Utente> UsersCommonTags = new ArrayList<>();
+		List<Utente> UsersTagsInCommon = new ArrayList<>();
 		List<String> userTags = new ArrayList<>();
 		
-		for(Utente u : registeredUsers)		//prendo i tag dell'utente corrente
+		//prendo i tag dell'utente corrente
+		for(Utente u : registeredUsers)
 			if(u.getUsername().equals(username)) {
 				userTags = u.getTags();
 			}
 		
-		for(Utente u : registeredUsers) {
+		//salvo tutti gli utenti con almeno un tag in comune con user
+		Iterator<Utente> i = registeredUsers.iterator();
+		while(i.hasNext()) {
+			Utente u = i.next();
 			if(!u.getUsername().equals(username)){
 				for(String t : userTags) {
 					if(u.getTags().contains(t)) {
-						UsersCommonTags.add(u);
+						UsersTagsInCommon.add(u);
 						break;
 					}
 				}
 			}
 		}
 		
-		if(UsersCommonTags.isEmpty())
+		if(UsersTagsInCommon.isEmpty())
 			return new ResponseMessage<>("Non ci sono utenti con tag in comune", null);
-		else return new ResponseMessage<>("OK", UsersCommonTags);
+		else return new ResponseMessage<>("OK", UsersTagsInCommon);
 	}
 
 	public  ResponseMessage<String> listFollowing(String username){
@@ -541,13 +532,19 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(currUser.equals(userToFollow))
 			return "ERROR: Non puoi seguire te stesso";
 		
-		for(Utente u : registeredUsers) {
+		
+		Iterator<Utente> i = registeredUsers.iterator();
+		while(i.hasNext()) {
+			Utente u = i.next();
 			if(u.getUsername().equals(userToFollow)) {
 				if(!following.get(currUser).contains(userToFollow)) {	//se l'utente corrente non segue usertofollow
 					followers.get(userToFollow).add(currUser);
 					following.get(currUser).add(userToFollow);
+					
+					//aggiorno la struttura nel client
 					update(currUser, userToFollow, 1);
 					
+					//aggiortno le strutture nel database
 					String file = dirDatabase+"Follow/";
 					updateDatabase.updateDbFollow(followers, file + "followers.json");
 					updateDatabase.updateDbFollow(following, file + "following.json");
@@ -555,7 +552,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				} else return "ERROR: Segui gia' quest'utente";
 			}
 		}
-		return "ERROR: Quest'utente non esiste";
+		return "ERROR: Quest'utente non esiste";	
 	}
 	
 	public String unfollow(String currUser, String userToUnfollow) throws RemoteException {
@@ -564,14 +561,18 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(currUser.equals(userToUnfollow))
 			return "ERROR: Non puoi unfolloware te stesso";
 		
-		
-		for(Utente u : registeredUsers) {
+		Iterator<Utente> i = registeredUsers.iterator();
+		while(i.hasNext()) {
+			Utente u = i.next();
 			if(u.getUsername().equals(userToUnfollow)) {
 				if(following.get(currUser).contains(userToUnfollow)) {
 					followers.get(userToUnfollow).remove(currUser);
 					following.get(currUser).remove(userToUnfollow);
+					
+					//aggiorno la struttura dati nel client tramite callback
 					update(currUser, userToUnfollow, 0);
 					
+					//aggiorno le strutture nel database
 					String file = dirDatabase+"Follow/";
 					updateDatabase.updateDbFollow(followers, file + "followers.json");
 					updateDatabase.updateDbFollow(following, file + "following.json");
@@ -591,8 +592,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(contenuto.length() > 500)
 			return "ERROR: la lunghezza del contenuto deve essere di massimo 500 caratteri";
 		
+		//creo il post e lo aggiungo alla lista di post
 		Post post = new Post(IdPostglobal, user, title, contenuto);
-		listPosts.put(IdPostglobal, post);
+		listPosts.putIfAbsent(IdPostglobal, post);
+		
+		//aggiungo il post al database
 		String path = dirDatabase+"Post/"+Integer.toString(IdPostglobal)+".json";
 		updateDatabase.updateDbPost(post, path);
 		IdPostglobal++;
@@ -603,13 +607,15 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 		if(listPosts.isEmpty())
 			return new ResponseMessage<>("Non ci sono post nel social", null);
-		List<Post> postInFeed = new ArrayList<>();
 		
+		//per ogni post: se l'user segue l'autore o segue un rewiner lo aggiungo al feed
+		List<Post> postInFeed = new ArrayList<>();
 		for(var entry : listPosts.entrySet()) {
 			if(following.get(user).contains(entry.getValue().getAutore()) || doUserFollowAnyRewiner(user, entry.getValue().getId())) {	//se chi ha richiesto il feed segue l'autore del post corrente
 				postInFeed.add(entry.getValue());
 			}
 		}
+		
 		if(postInFeed.isEmpty())
 			return new ResponseMessage<>("Non hai post nel feed", postInFeed);
 		return new ResponseMessage<>("OK", postInFeed);
@@ -619,8 +625,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(listPosts.isEmpty())
 			return new ResponseMessage<>("Non ci sono post nel social", null);
 		
+		//per ogni post di cui user e' l'autore o un rewiner lo aggiungo al blog
 		List<Post> myPosts = new ArrayList<>();
-
 		for(var entry : listPosts.entrySet()) {
 			if(entry.getValue().getAutore().equals(user) || entry.getValue().getRewiners().contains(user)) {
 				myPosts.add(entry.getValue());
@@ -639,21 +645,18 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			return "ERROR: IdPost non esistente";
 		if(listPosts.get(idPost).getAutore().equals(user))
 			return "ERROR: Non puoi votare un post di cui sei autore";
-		if(!following.get(user).contains(listPosts.get(idPost).getAutore()))
-			if(!doUserFollowAnyRewiner(user, idPost))
-				return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
+		if(!following.get(user).contains(listPosts.get(idPost).getAutore()) && !doUserFollowAnyRewiner(user, idPost))
+			return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
 		if(listPosts.get(idPost).getVoters().contains(user))
 			return "ERROR: hai gia votato questo post";
 		
+		//Creo il voto e loaggiungo al post
 		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
 		String s = formatter.format(timestamp);
 		Voto voto = new Voto(vote, s);
-		if(vote == 1)
-			listPosts.get(idPost).setUpvote(vote);
-		else listPosts.get(idPost).setDownvote(vote);
-		
 		listPosts.get(idPost).addVote(user, voto);
 		
+		//aggiorno il post nel database
 		String path = dirDatabase+"Post/"+Integer.toString(idPost)+".json";
 		updateDatabase.updateDbPost(listPosts.get(idPost), path);
 		return "OK";
@@ -665,15 +668,15 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			return "ERROR: IdPost non esistente";
 		if(listPosts.get(idPost).getAutore().equals(user))
 			return "ERROR: Non puoi commentare un post di cui sei autore";
-		if(!following.get(user).contains(listPosts.get(idPost).getAutore()))
-			if(!doUserFollowAnyRewiner(user, idPost))
-				return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
+		if(!following.get(user).contains(listPosts.get(idPost).getAutore()) && !doUserFollowAnyRewiner(user, idPost))				
+			return "ERROR: Non segui l'autore di questo post e nessun rewiner del post";
 		
-		
+		//Inserisco il commento nel post
 		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
 		String s = formatter.format(timestamp);
 		listPosts.get(idPost).addComment(user, comment, s);
 		
+		//aggiorno il post nel database
 		String path = dirDatabase+"Post/"+Integer.toString(idPost)+".json";
 		updateDatabase.updateDbPost(listPosts.get(idPost), path);
 		return "OK";
@@ -682,10 +685,16 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	public ResponseMessage<Post> showPost(String user, int idpost){
 		if(!listPosts.containsKey(idpost))
 			return new ResponseMessage<>("IdPost non esistente", null);
-		if(!following.get(user).contains(listPosts.get(idpost).getAutore()))	//se l'user che richiede non segue l'autore del post e non segue qualcuno che l ha retwittato
-			if(!doUserFollowAnyRewiner(user, idpost))
-				return new ResponseMessage<>("ERROR: Non segui l'autore del post e nessun rewiner del post", null);
-		//utilizzo una lista perche cosi e' il tipo ResponseMessage, ma in questo caso e' formata solo da un post
+		
+	//	if(!listPosts.get(idpost).getAutore().equals(user) && !listPosts.get(idpost).getRewiners().contains(user))	
+		//	return new ResponseMessage<>("ERROR: Non sei ne' autore ne' rewiner del post", null);
+		
+		if(!following.get(user).contains(listPosts.get(idpost).getAutore()) && !doUserFollowAnyRewiner(user, idpost)
+				&& !listPosts.get(idpost).getAutore().equals(user) && !listPosts.get(idpost).getRewiners().contains(user))
+			return new ResponseMessage<>("ERROR: Non sei autore ne' rewiner, non segui l'autore del post e nessun rewiner del post", null);
+		
+		
+		//lista formata da un solo post
 		List<Post> post = new ArrayList<>();
 		post.add(listPosts.get(idpost));
 		return new ResponseMessage<>("OK", post);
@@ -706,7 +715,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			InputStream in = url.openStream();
 			BufferedReader reader = new BufferedReader(new InputStreamReader(in));
 			String n = reader.readLine();
-			int cambio = Integer.parseInt(n);	// 1 euro = "cambio" BITCOIN
+			int cambio = Integer.parseInt(n);	// 1 wincoin = "cambio" BITCOIN
 			reader.close();
 			in.close();
 			double soldi = 0; double value = 0;
@@ -729,18 +738,22 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			return "ERROR: Non puoi cancellare un post di cui non sei autore";
 		
 		listPosts.remove(idpost);
+		
+		//rimuovo il post dal database
+		String filename = dirDatabase+"Post/"+idpost+".json";
+		updateDatabase.deleteFile(filename);
 		return "OK";
 	}
 	
 	public String rewin(String user, int idpost) {
 		if(!listPosts.containsKey(idpost))
 			return "ERROR: IdPost non esistente";
-		if(!following.get(user).contains(listPosts.get(idpost).getAutore()))	//se l'utente segue l'autore del post da retwittare
-			if(!doUserFollowAnyRewiner(user, idpost))
-				return "ERROR: Non segui l autore del post";
+		if(!following.get(user).contains(listPosts.get(idpost).getAutore()) && !doUserFollowAnyRewiner(user, idpost))	//se l'utente segue l'autore del post da retwittare
+			return "ERROR: Non segui l autore del post e nessun rewiner del post";
 		
 		listPosts.get(idpost).addRewiner(user);
 		
+		//aggiorno il post nel database
 		String path = dirDatabase+"Post/"+Integer.toString(idpost)+".json";
 		updateDatabase.updateDbPost(listPosts.get(idpost), path);
 		
@@ -756,58 +769,62 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	}
 
 	public synchronized void registerForCallback(InterfaceNotifyEvent clientInterface, String username) throws RemoteException{	
-		boolean contains = clients.stream().anyMatch(client -> clientInterface.equals(client.getClient()));
+		boolean contains = false;
+		Iterator<CallbackInfo> i = clients.iterator();
+		while(i.hasNext()) {
+			CallbackInfo user = (CallbackInfo) i.next();
+			if(user.getClient().equals(clientInterface))
+				contains = true;
+		}
 		
 		if(!contains) {
 			clients.add(new CallbackInfo(clientInterface, username));
-			System.out.println("CALLBACK SYSTEM: New client registered");
+			//System.out.println("CALLBACK SYSTEM: New client registered");
 		}
 		
 	}
-	
 	
 	public synchronized void unregisterForCallback(InterfaceNotifyEvent Client) throws RemoteException{
-		CallbackInfo user = clients.stream().filter(client -> Client.equals(client.getClient())).findAny().orElse(null);
-		
-		if(user != null) {
-			clients.remove(user);
-			System.out.println("CALLBACK SYSTEM: Client unregistered");
+		CallbackInfo userToUnregister = null;
+		Iterator<CallbackInfo> i = clients.iterator();
+		while(i.hasNext()) {
+			CallbackInfo user = (CallbackInfo) i.next();
+			if(user.getClient().equals(Client)) {
+				userToUnregister = user;
+				break;
+			}
 		}
-		else System.out.println("Unable to unregister client");
+		
+		if(userToUnregister != null) {
+			clients.remove(userToUnregister);
+			//System.out.println("CALLBACK SYSTEM: Client unregistered");
+		}
+		//else System.out.println("Unable to unregister client");
 	}
-	
 	
 	public void update(String currUser, String userToFollow, int op) throws RemoteException{
 		CallbackFollowers(currUser, userToFollow, op);
 	}
-	
-	
+		
 	private synchronized void CallbackFollowers(String currUser, String userToFollow, int op) throws RemoteException{
-		LinkedList<InterfaceNotifyEvent> errors = new LinkedList<>();
-		System.out.println("CALLBACK SYSTEM: starting callbacks");
+		
+		//System.out.println("CALLBACK SYSTEM: starting callbacks");
 		for(CallbackInfo info : clients) {
 			InterfaceNotifyEvent client = info.getClient();
 			if(info.getUsername().equals(userToFollow)) {
 				try {
 					client.notifyEventListFollowers(currUser, op);
 				}catch(RemoteException e) {
-					errors.add(client);
+					e.printStackTrace();
 				}
 			}
 		}
-		if(!errors.isEmpty()) {
-			System.out.println("CALLBACK SYSTEM: Unregister clients that caused an error");
-			for(InterfaceNotifyEvent n : errors) unregisterForCallback(n);
-		}
-		System.out.println("CALLBACK SYSTEM: Callback complete");
+		
+		//System.out.println("CALLBACK SYSTEM: Callback complete");
 	}
 
-	
-	
-	
-	public static void setupServer(String path) throws IOException {
-		
-		//CONFIGURAZIONE DELLE VARIABILI GLOBALI
+	//Configurazione delle variabili globali
+	public static boolean setupServer(String path) throws IOException {
 		File file = new File(path);
 		BufferedReader br = new BufferedReader(new FileReader(file));
 		String str;
@@ -824,62 +841,41 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					TCPPORT = port;
 				}catch(NumberFormatException e) {
 					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+					return false;
 				}
 				break;
 				
 			case "UDPPORT":
 				try {
 					port = Integer.parseInt(splitLine[2]);
-					TCPPORT = port;
+					UDPPORT = port;
 				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
-				}
-				break;
-			case "MCASTPORT":
-				try {
-					port = Integer.parseInt(splitLine[2]);
-					MCASTPORT = port;
-				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+					System.err.println("ERROR IN CONFIGFILE. UDP Must be a number");
+					return false;
 				}
 				break;
 
-			case "SERVER":
-				indServer = splitLine[2];
-				break;
-				
-			case "MULTICAST":
-				indMulticast = splitLine[2];
-				break;
-				
-			case "REGHOST":
-				regHost = splitLine[2];
-				break;
-				
 			case "REGPORT":
 				try {
 					port = Integer.parseInt(splitLine[2]);
 					regPort = port;
 				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+					System.err.println("ERROR IN CONFIGFILE. REGPORT Must be a number");
+					return false;
 				}
+				break;
+				
+			case "MCAST":
+				MCAST = splitLine[2];
 				break;
 
-			case "TIMEOUT":
-				try {
-					port = Integer.parseInt(splitLine[2]);
-					timeout = port;
-				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
-				}
-				break;
-			
 			case "RICOMPENSAAUTORE":
 				try {
 					port = Integer.parseInt(splitLine[2]);
 					ricompensaAutore = port;
 				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+					System.err.println("ERROR IN CONFIGFILE. RICOMPENSAAUTORE Must be a number");
+					return false;
 				}
 				break;
 				
@@ -888,19 +884,24 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					port = Integer.parseInt(splitLine[2]);
 					periodoCalcolo = port;
 				}catch(NumberFormatException e) {
-					System.err.println("ERROR IN CONFIGFILE. TCPPORT Must be a number");
+					System.err.println("ERROR IN CONFIGFILE. PERIODOCALCOLO Must be a number");
+					return false;
 				}
 				break;
 
+			case "DIRDATABASE":
+				dirDatabase = splitLine[2];
+				break;
+				
+			default: break;
 			}
 		}
+		br.close();
+		return true;
 	}
 	
-	
-	
 	public static void getBackupData() {
-		Gson gson = new Gson();
-		File directory = new File(dirDatabase);	//directory dove sono memorizzati i file dei profili utente
+		File directory = new File(dirDatabase+"Users/");	//directory dove sono memorizzati i file dei profili utente
 		File[] files = directory.listFiles();
 		for(File f : files) {
 			try {
@@ -933,8 +934,9 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 						else reader.skipValue();
 					}
 					reader.endObject();
-					//reader.close();
-					Utente u = new Utente(username, password, null);
+					Utente u = new Utente(username, password, tags);
+					u.setTransazioni(transazioni);
+					u.setGuadagno(wincoins);
 					registeredUsers.add(u);
 				}
 			}catch(Exception e) {
@@ -952,7 +954,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					String autore = null;
 					String titolo = null;
 					String contenuto = null;
-					int upvote = 0; int downvote = 0; int idPost = 0;
+					int upvote = 0; int downvote = 0; int idPost = 0; int n_iterazioni = 0;
 					Map<String, Voto> voti = new HashMap<>();
 					Map<String, List<Comment>> commenti = new HashMap<>();
 					Set<String> rewiners = new HashSet<>();
@@ -972,6 +974,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							titolo = reader.nextString();
 						if(field.equals("contenuto"))
 							contenuto = reader.nextString();
+						if(field.equals("n_iterazioni"))
+							n_iterazioni = reader.nextInt();
 						if(field.equals("voti")) {
 							reader.beginObject();
 							voti = readVoti(reader);
@@ -990,12 +994,10 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					}
 					reader.endObject();
 					Post p = new Post(idPost, autore, titolo, contenuto);
-					p.setDownvote(downvote);
-					p.setUpvote(upvote);
-					p.setRewiners(rewiners);
-					p.setVoti(voti);
-					p.setCommenti(commenti);
-					listPosts.put(idPost, p);
+					p.setValuesBackup(upvote, downvote, n_iterazioni, rewiners, voti, commenti);
+					listPosts.putIfAbsent(idPost, p);
+					if(idPost >= IdPostglobal)
+						IdPostglobal = idPost+1;
 				}
 			}catch(Exception e) {
 				e.printStackTrace();
@@ -1019,8 +1021,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				Map<String, List<String>> v = new Gson().fromJson(new FileReader(fileFollowing), Map.class);
 				if(!v.isEmpty())
 					following.putAll(v);
-				for(var entry : followers.entrySet())
-					System.out.println("FOLLOWERS " + entry.getKey() +": "+entry.getValue());
+				//for(var entry : followers.entrySet())
+					//System.out.println("FOLLOWERS " + entry.getKey() +": "+entry.getValue());
 			}
 		}catch(Exception e) {
 			e.printStackTrace();
@@ -1081,52 +1083,60 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	
 	public static Map<String, Voto> readVoti(JsonReader reader) throws IOException {
 		Map<String, Voto> voti = new HashMap<>();
-		
+		int ok = 0;	//ok = 0 -> key non presa, ok = 1 -> key presa
+		String name = null;
+		String key = null;
 		while(reader.hasNext()) {
-			String key = null;
-			Voto voto = null;
 			JsonToken nextToken = reader.peek();
-			if(JsonToken.STRING.equals(nextToken)) {
-				int v = 0; 
-				String timestamp = null;
-				key = reader.nextString();
-				reader.beginObject();
-				while(reader.hasNext()) {
-					String field = reader.nextName();
-					if(field.equals("voto"))
-						v = reader.nextInt();
-					if(field.equals("timestamp"))
-						timestamp = reader.nextString();
-				}
-				voto = new Voto(v, timestamp);
-				voti.put(key, voto);
-			} else reader.skipValue();
+			if(ok == 0)
+				name = reader.nextName();
+			if(JsonToken.NAME.equals(nextToken) && ok == 0) {
+				key = name;
+				ok = 1;
+			} 
+			else if(ok == 1) {
+				voti.put(key, readVoto(reader));
+				ok = 0;
+			}
+			else reader.skipValue();
 		}
 		return voti;
+	}
+	
+	public static Voto readVoto(JsonReader reader) throws IOException{
+		int voto = 0;
+		String timestamp = null;
+		reader.beginObject();
+		while(reader.hasNext()) {
+			String field = reader.nextName();
+			if(field.equals("voto"))
+				voto = reader.nextInt();
+			else if(field.equals("timestamp"))
+				timestamp = reader.nextString();
+			else reader.skipValue();
+		}
+		reader.endObject();
+		Voto value = new Voto(voto, timestamp);
+		return value;
 	}
 	
 	public static Map<String, List<Comment>> readCommenti(JsonReader reader) throws IOException{
 		Map<String, List<Comment>> commenti = new HashMap<>();
 		int ok = 0;
 		String name = null;
+		String key = null;
 		while(reader.hasNext()) {
-			String key = null;
-			List<Comment> comments = null;
-			while(reader.hasNext()) {
-				JsonToken nextToken = reader.peek();
-				if(ok == 0)
-					name = reader.nextName();
-				if(JsonToken.NAME.equals(nextToken) && ok == 0) {
-					key = name;
-					ok = 1;
-				}else if(ok == 1) {
-					comments = readComm(reader);
-					ok = 2;
-				}
-				else reader.skipValue();
+			JsonToken nextToken = reader.peek();
+			if(ok == 0)
+				name = reader.nextName();
+			if(JsonToken.NAME.equals(nextToken) && ok == 0) {
+				key = name;
+				ok = 1;
+			}else if(ok == 1) {
+				commenti.put(key, readComm(reader));
+				ok = 0;
 			}
-			ok = 0;
-			commenti.put(key, comments);
+			else reader.skipValue();
 		}
 		return commenti;
 	}
@@ -1156,7 +1166,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		return ret;
 	}
 	
-	public static void main(String[] args) throws NoSuchAlgorithmException {
+	public static void main(String[] args){
 		
 		if(args.length != 1) {
 			System.err.println("Usage: needs path of config file");
@@ -1166,25 +1176,28 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		MainServer server = new MainServer();
 		String path = args[0];
 		try {
-			setupServer(path);
+			if(!setupServer(path)) {
+				System.exit(1);
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}		
-		
 		getBackupData();
 		
 		try {
 			InterfaceServerRMI stub = (InterfaceServerRMI) UnicastRemoteObject.exportObject(server, 0);
-			LocateRegistry.createRegistry(5000);
-			Registry r = LocateRegistry.getRegistry(5000);
-			r.rebind("Server", stub);
-			System.out.println("Server pronto");
+			
+			//creazione di un registry sulla porta regPort
+			LocateRegistry.createRegistry(regPort);
+			Registry r = LocateRegistry.getRegistry(regPort);
+			r.rebind("Server", stub);	//pubblicazione dello stub nel registry
+			//System.out.println("Server pronto");
 		}catch(RemoteException e) {
 			System.err.println("Errore: " + e.getMessage());
 		}
-
+	
 		ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
-		exec.scheduleAtFixedRate(new MainCalcoloRicompense(listPosts, registeredUsers, ricompensaAutore), 0, periodoCalcolo, TimeUnit.SECONDS);
+		exec.scheduleAtFixedRate(new CalcoloRicompense(listPosts, registeredUsers, ricompensaAutore, UDPPORT, MCAST), periodoCalcolo, periodoCalcolo, TimeUnit.SECONDS);
 		server.start();
 	}
 }

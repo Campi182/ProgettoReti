@@ -1,8 +1,11 @@
 import java.io.Serializable;
-import java.sql.Timestamp;
 
 public class Comment implements Serializable{
 
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private String autore;
 	private String commento;
 	private String timestamp;

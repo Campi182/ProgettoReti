@@ -1,20 +1,24 @@
 import java.io.Serializable;
-import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Post implements Serializable{
 
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private int IdPost;
 	private String autore;
 	private String titolo;
 	private String contenuto;
 	private int upvote;
 	private int downvote;
+	private int n_iterazioni;
 	private Map<String, Voto> voti;
 	private Map<String, List<Comment>> commenti;
 	private Set<String> rewiners;
@@ -24,10 +28,13 @@ public class Post implements Serializable{
 		this.autore = creator;
 		this.titolo = title;
 		this.contenuto = content;
-		voti = new HashMap<>();
-		commenti = new HashMap<>();
-		rewiners = new HashSet<>();
+		n_iterazioni = 1;
+		voti = new ConcurrentHashMap<>();
+		commenti = new ConcurrentHashMap<>();
+		rewiners = new HashSet<String>();
 	}
+	
+	//GETTERS
 	
 	public int getId() {
 		return this.IdPost;
@@ -45,6 +52,10 @@ public class Post implements Serializable{
 		return this.contenuto;
 	}
 	
+	public int getIterazioni() {
+		return this.n_iterazioni;
+	}
+	
 	public int getUpvote() {
 		return this.upvote;
 	}
@@ -57,18 +68,6 @@ public class Post implements Serializable{
 		return this.rewiners;
 	}
 	
-	public void setUpvote(int vote) {
-		this.upvote += vote;
-	}
-	
-	public void setDownvote(int vote) {
-		this.downvote += vote;
-	}
-	
-	public void addVote(String user, Voto voto) {
-		voti.put(user, voto);
-	}
-	
 	public Set<String> getVoters(){
 		return voti.keySet();
 	}
@@ -78,29 +77,6 @@ public class Post implements Serializable{
 		for(var entry : voti.entrySet())
 			res.add(entry.getValue());
 		return res;
-	}
-	
-	public void addRewiner(String user) {
-		this.rewiners.add(user);
-	}
-	
-	public void setRewiners(Set<String> rewiners) {
-		this.rewiners = rewiners;
-	}
-	
-	public void setVoti(Map<String, Voto> voti) {
-		this.voti = voti;
-	}
-	
-	public void setCommenti(Map<String, List<Comment>> commenti) {
-		this.commenti = commenti;
-	}
-	
-	public void addComment(String autore, String commento, String timestamp) {
-		Comment comm = new Comment(autore, commento, timestamp);
-		if(!commenti.containsKey(autore))
-			commenti.put(autore, new ArrayList<>());
-		commenti.get(autore).add(comm);
 	}
 	
 	public Map<String, List<Comment>> getMapComments(){
@@ -118,4 +94,39 @@ public class Post implements Serializable{
 				res.add(c);
 		return res;
 	}
+	
+	//SETTERS
+	
+	public void setValuesBackup(int upvote, int downvote, int n_iterazioni, Set<String> rewiners, Map<String, Voto> voti, Map<String, List<Comment>> commenti) {
+		this.upvote = upvote;
+		this.downvote = downvote;
+		this.n_iterazioni = n_iterazioni;
+		this.rewiners = rewiners;
+		this.voti = voti;
+		this.commenti = commenti;
+	}
+	
+	
+	public void addVote(String user, Voto voto) {
+		voti.putIfAbsent(user, voto);
+		if(voto.getVoto() == 1)
+			this.upvote++;
+		else this.downvote++;
+	}
+	
+	public void addRewiner(String user) {
+		this.rewiners.add(user);
+	}
+	
+	public void addComment(String autore, String commento, String timestamp) {
+		Comment comm = new Comment(autore, commento, timestamp);
+		if(!commenti.containsKey(autore))
+			commenti.putIfAbsent(autore, new ArrayList<>());
+		commenti.get(autore).add(comm);
+	}
+	
+	public void plusIteraction() {
+		this.n_iterazioni++;
+	}
+	
 }

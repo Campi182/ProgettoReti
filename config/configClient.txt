@@ -1,0 +1,17 @@
+###
+# Questo è il file di configurazione per i client
+# Le righe vuote o che iniziano per '#' verranno ignorate
+#
+
+#INDIRIZZO DEL SERVER
+SERVERADDRESS = 127.0.0.1
+#PORTA TCP comunicazione col server
+TCPPORT = 6789
+#RMIPORT
+RMIPORT = 5000
+#UDPPORT
+UDPPORT = 1025
+#indirizzo multicast
+MULTICAST = 226.226.226.226
+#Porta multicast
+MCASTPORT = 1025

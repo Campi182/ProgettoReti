@@ -8,5 +8,6 @@
 	</classpathentry>
 	<classpathentry kind="lib" path="C:/Users/caner/Documents/GitHub/ProgettoReti/libs/gson-2.8.2.jar"/>
 	<classpathentry kind="lib" path="C:/Users/caner/Documents/GitHub/ProgettoReti/src/gson-2.8.2.jar"/>
+	<classpathentry kind="lib" path="C:/Users/caner/Documents/GitHub/ProgettoReti/lib/gson-2.8.2.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

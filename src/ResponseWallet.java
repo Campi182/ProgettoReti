@@ -2,6 +2,10 @@ import java.io.Serializable;
 import java.util.List;
 
 public class ResponseWallet<T> extends ResponseMessage<T> implements Serializable {
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private double guadagno;
 	
 	public ResponseWallet(String code, List<T> list, double guadagno) {
