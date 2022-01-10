@@ -25,7 +25,6 @@ import java.sql.Timestamp;
 import java.text.Format;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -72,7 +71,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	
 	//constructor
 	public MainServer() {
-		registeredUsers = Collections.synchronizedList(new ArrayList<Utente>());
+		registeredUsers = new ArrayList<Utente>();
 		clients = new ArrayList<CallbackInfo>();
 		followers = new ConcurrentHashMap<>();
 		following = new ConcurrentHashMap<>();
@@ -83,8 +82,6 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	
 	public void start(){
 		
-		//RMI setup per registrazione
-		//strutture per spedire le risposte/oggetti al client
 		ByteArrayOutputStream baos;
 		ObjectOutputStream oos;
 		byte[] res = new byte[bufsize];
@@ -92,7 +89,8 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		int number = 0;
 		
 		try {
-			//Listening per nuove connessioni
+			//preparo il server ad accettare nuove connessioni e a ricevere richieste dai client
+			
 			ServerSocketChannel serverSocket = ServerSocketChannel.open();
 			serverSocket.socket().bind(new InetSocketAddress(TCPPORT));
 			serverSocket.configureBlocking(false);
@@ -132,6 +130,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 						String[] split_str = str_received.split(" ");
 						System.out.println("Command requested: "+ str_received);
 						
+						//operazioni da eseguire in base al comando ricevuto dal client
 						switch(split_str[0]) {
 						case "login":
 							ResponseMessage<String> res_Login;
@@ -140,9 +139,9 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							else {
 								res_Login = login(split_str[1], split_str[2]);
 								if(res_Login.getCode().equals("OK"))
-									key.attach(split_str[1]);	//al login mi salvo l'username corrente
+									key.attach(split_str[1]);	//mi salvo l'username dell'utente loggato
 							}
-							//Send response
+							
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(res_Login);
@@ -164,7 +163,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							res = baos.toByteArray();
 							break;
 							
-						case "list":	//listUsers && list following
+						case "list":	//listUsers e list following
 							ResponseMessage<Utente> res_listUsers = null;
 							ResponseMessage<String> res_listFollowing = null;
 							baos = new ByteArrayOutputStream();
@@ -195,6 +194,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							else {
 								resString = follow((String) key.attachment(), split_str[1]);
 							}
+							
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(resString);
@@ -207,6 +207,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							else {
 								resString = unfollow((String) key.attachment(), split_str[1]);
 							}
+							
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
 							oos.writeObject(resString);
@@ -233,7 +234,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 							res = baos.toByteArray();
 							break;
 							
-						case "show":
+						case "show":	//show feed e show post <idpost>
 							ResponseMessage<Post> resPosts = null;
 							baos = new ByteArrayOutputStream();
 							oos = new ObjectOutputStream(baos);
@@ -441,7 +442,6 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 	}
 	    
 	public ResponseMessage<String> login(String username, String password){
-
 		String code = null;
 		boolean tmp = false;
 		List<String> followList;	//invio all'user la lista dei suoi seguaci
@@ -452,9 +452,12 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			for(Utente u : registeredUsers) {
 				if(u.getUsername().equals(username)) {
 					try {
-						if(u.getPassword().equals(Hash.bytesToHex(Hash.sha256(password)))) {
+						if(u.isOnline())
+							code = "ERROR: User e' online";
+						else if(u.getPassword().equals(Hash.bytesToHex(Hash.sha256(password)))) {
 							tmp = true;
 							code = "OK";
+							u.setStatus(true);	//utente e' online
 						} else code = "ERROR: wrong password";
 					}catch(NoSuchAlgorithmException e) {
 						code = "ERROR: NoSuchAlgorithmException";
@@ -463,7 +466,6 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			}
 		}
 		
-		//se l'utente non e' presente nelle Map non posso inviargli la sua lista dei followers
 		if(tmp && followers.containsKey(username)) {
 			followList = new ArrayList<>(followers.get(username));
 		}
@@ -520,6 +522,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 		for(Utente u : registeredUsers) {
 			if(u.getUsername().equals(username)) {
+				u.setStatus(false);
 				return "OK";
 			}
 		}
@@ -544,7 +547,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 					//aggiorno la struttura nel client
 					update(currUser, userToFollow, 1);
 					
-					//aggiortno le strutture nel database
+					//aggiorno le strutture nel database
 					String file = dirDatabase+"Follow/";
 					updateDatabase.updateDbFollow(followers, file + "followers.json");
 					updateDatabase.updateDbFollow(following, file + "following.json");
@@ -611,7 +614,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		//per ogni post: se l'user segue l'autore o segue un rewiner lo aggiungo al feed
 		List<Post> postInFeed = new ArrayList<>();
 		for(var entry : listPosts.entrySet()) {
-			if(following.get(user).contains(entry.getValue().getAutore()) || doUserFollowAnyRewiner(user, entry.getValue().getId())) {	//se chi ha richiesto il feed segue l'autore del post corrente
+			if(following.get(user).contains(entry.getValue().getAutore()) || doUserFollowAnyRewiner(user, entry.getValue().getId())) {
 				postInFeed.add(entry.getValue());
 			}
 		}
@@ -625,7 +628,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(listPosts.isEmpty())
 			return new ResponseMessage<>("Non ci sono post nel social", null);
 		
-		//per ogni post di cui user e' l'autore o un rewiner lo aggiungo al blog
+		//per ogni post di cui user e' l'autore o un rewiner -> lo aggiungo al blog
 		List<Post> myPosts = new ArrayList<>();
 		for(var entry : listPosts.entrySet()) {
 			if(entry.getValue().getAutore().equals(user) || entry.getValue().getRewiners().contains(user)) {
@@ -686,11 +689,12 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		if(!listPosts.containsKey(idpost))
 			return new ResponseMessage<>("IdPost non esistente", null);
 		
-	//	if(!listPosts.get(idpost).getAutore().equals(user) && !listPosts.get(idpost).getRewiners().contains(user))	
-		//	return new ResponseMessage<>("ERROR: Non sei ne' autore ne' rewiner del post", null);
-		
+		//per vedere il post l'utente deve soddisfare almeno una delle seguenti condizioni:
+		//1. Deve seguire l'autore del post
+		//2. Deve seguire un utente che ha fatto il rewin del post
+		//3. Deve essere autore del post
 		if(!following.get(user).contains(listPosts.get(idpost).getAutore()) && !doUserFollowAnyRewiner(user, idpost)
-				&& !listPosts.get(idpost).getAutore().equals(user) && !listPosts.get(idpost).getRewiners().contains(user))
+				&& !listPosts.get(idpost).getAutore().equals(user))
 			return new ResponseMessage<>("ERROR: Non sei autore ne' rewiner, non segui l'autore del post e nessun rewiner del post", null);
 		
 		
@@ -776,7 +780,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 			if(user.getClient().equals(clientInterface))
 				contains = true;
 		}
-		
+		//se l'utente non e'ancora registrato alla callback, lo registro
 		if(!contains) {
 			clients.add(new CallbackInfo(clientInterface, username));
 			//System.out.println("CALLBACK SYSTEM: New client registered");
@@ -794,12 +798,11 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 				break;
 			}
 		}
-		
+		//deregistro l'user dalla callback
 		if(userToUnregister != null) {
 			clients.remove(userToUnregister);
 			//System.out.println("CALLBACK SYSTEM: Client unregistered");
 		}
-		//else System.out.println("Unable to unregister client");
 	}
 	
 	public void update(String currUser, String userToFollow, int op) throws RemoteException{
@@ -811,6 +814,7 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		//System.out.println("CALLBACK SYSTEM: starting callbacks");
 		for(CallbackInfo info : clients) {
 			InterfaceNotifyEvent client = info.getClient();
+			//invio la callback solamente all'user coinvolto
 			if(info.getUsername().equals(userToFollow)) {
 				try {
 					client.notifyEventListFollowers(currUser, op);
@@ -1175,27 +1179,30 @@ public class MainServer extends RemoteObject implements InterfaceServerRMI{
 		
 		MainServer server = new MainServer();
 		String path = args[0];
+		
+		//Setup delle variabili globali del server
 		try {
 			if(!setupServer(path)) {
 				System.exit(1);
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			System.out.println("ERROR: Error during setup server");
 		}		
+		
+		//ripristino i dati salvati nei JSON
 		getBackupData();
 		
+		//Oggetto remoto per metodi RMI
 		try {
 			InterfaceServerRMI stub = (InterfaceServerRMI) UnicastRemoteObject.exportObject(server, 0);
-			
-			//creazione di un registry sulla porta regPort
 			LocateRegistry.createRegistry(regPort);
 			Registry r = LocateRegistry.getRegistry(regPort);
 			r.rebind("Server", stub);	//pubblicazione dello stub nel registry
-			//System.out.println("Server pronto");
 		}catch(RemoteException e) {
 			System.err.println("Errore: " + e.getMessage());
 		}
 	
+		//Thread del calcolo delle ricompense, si attiva ogni 'periodoCalcolo' secondi, specificato nel configServer
 		ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
 		exec.scheduleAtFixedRate(new CalcoloRicompense(listPosts, registeredUsers, ricompensaAutore, UDPPORT, MCAST), periodoCalcolo, periodoCalcolo, TimeUnit.SECONDS);
 		server.start();

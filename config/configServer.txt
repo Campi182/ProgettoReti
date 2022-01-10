@@ -7,16 +7,13 @@
 TCPPORT = 6789
 # Porta UDP del server
 UDPPORT = 1025
-# Host su cui si trova il registry
-REGHOST = localhost
 # Porta del registry RMI
 REGPORT = 5000
 #Indirizzo di multicast
 MCAST = 226.226.226.226
-
 # Percentuale ricompensa autore
 RICOMPENSAAUTORE = 80
 # Periodo calcolo ricompense (in secondi)
-PERIODOCALCOLO = 1
+PERIODOCALCOLO = 150
 # DIRECTORY DOVE SALVARE I FILE JSON
 DIRDATABASE = ../Database/

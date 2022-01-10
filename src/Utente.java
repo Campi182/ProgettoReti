@@ -9,6 +9,7 @@ public class Utente implements Serializable{	/**
 
 	private String username;
 	private String password;
+	private transient boolean isOnline;
 	private List<String> tags;
 	private List<Transaction> transazioni;
 	private double wincoins;
@@ -18,6 +19,7 @@ public class Utente implements Serializable{	/**
 		this.password = password;
 		this.tags = tags;
 		this.wincoins = 0;
+		this.isOnline = false;
 		transazioni = new ArrayList<>();
 	}
 	
@@ -31,6 +33,10 @@ public class Utente implements Serializable{	/**
 	
 	public List<String> getTags(){
 		return this.tags;
+	}
+	
+	public boolean isOnline() {
+		return this.isOnline;
 	}
 	
 	public void setWincoins(double val, String timestamp) {
@@ -49,6 +55,10 @@ public class Utente implements Serializable{	/**
 	
 	public double getWincoins() {
 		return this.wincoins;
+	}
+	
+	public void setStatus(boolean value) {
+		this.isOnline = value;
 	}
 	
 	public List<Transaction> getAllTransactions(){

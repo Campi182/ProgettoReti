@@ -71,10 +71,13 @@ public class CalcoloRicompense implements Runnable{
 				double guadagnoAutore = Math.round(  ((guadagno*ricompensaAutore)/100) * 100.0) / 100.0;
 				double guadagnoCuratore = Math.round(  ((guadagno*(100-ricompensaAutore))/100)/Math.max(1, curatori.size()) * 100.0)/100.0;	//guadagno di ogni curatore
 				entry.getValue().plusIteraction();
+				updateDatabase.updateDbPost(entry.getValue(), "../Database/Post/"+entry.getValue().getId()+".json");
+				
 				//System.out.println("GUADAGNO post " + entry.getKey() + ": " + guadagno);
 				//System.out.println("GUADAGNO di ogni curatore: "+ Math.round(guadagnoCuratore*100.0)/100.0);
 				//System.out.println("GUADAGNO autore: " + Math.round(guadagnoAutore*100.0)/100.0);
 				//ho calcolato il guadagno totale del post
+				
 				for(Utente u : registeredUsers) {
 					if(u.getUsername().equals(entry.getValue().getAutore()) && guadagno != 0) {	//ricompensa autore
 						currTime = new Timestamp(System.currentTimeMillis());

@@ -49,7 +49,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 			SocketChannel socketChannel = SocketChannel.open();
 			socketChannel.connect(new InetSocketAddress(ServerAddress, TCPPORT));
 			
-			//Registro per la callback
+			//Preparo per registrarmi alla callback
 			InterfaceNotifyEvent callbackObj = this;
 			InterfaceNotifyEvent stubCallback = (InterfaceNotifyEvent) UnicastRemoteObject.exportObject(callbackObj, 0);
 			System.out.println("Benvenuto su WINSOME.\nLogin o Registrati");
@@ -253,8 +253,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 	}
 
 	public static boolean login(String cmd, SocketChannel socketChannel) throws IOException, ClassNotFoundException {
-		//String[] str_split = cmd.split(" ");
-		//Send
+
 		socketChannel.write(ByteBuffer.wrap(cmd.getBytes(StandardCharsets.UTF_8)));
 		//Receive
 		ObjectInputStream ois = new ObjectInputStream(socketChannel.socket().getInputStream());
@@ -302,7 +301,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		
 		if(result.equals("OK")) {
 			System.out.println("LOGGED OUT");
-			t.interrupt();
+			t.interrupt();	//interrompo il thread che aspetta il messaggio UDP
 			return true;
 		} else System.out.println(result);
 		return false;
@@ -426,6 +425,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		if(!res.getCode().equals("OK"))
 			System.out.println(res.getCode());
 		else {
+			System.out.println("----------POST "+res.getList().get(0).getId()+"----------");
 			System.out.println("Titolo: " + res.getList().get(0).getTitolo());
 			System.out.println("Contenuto: " + res.getList().get(0).getContenuto());
 			System.out.println("Upvotes: " + res.getList().get(0).getUpvote());
@@ -502,6 +502,7 @@ public class MainClient extends RemoteObject implements InterfaceNotifyEvent{
 		System.out.println("wallet: visualizza i tuoi guadagni");
 		System.out.println("wallet btc: visualizza quanto hai guadagnato in bitcoin");
 		System.out.println("quit: esci");
+		System.out.println("-------------------------------------------------------");
 	}
 	
 	public void notifyEventListFollowers(String username, int op) {	//update list of followers	op = 1 -> follow / 0->unfollow

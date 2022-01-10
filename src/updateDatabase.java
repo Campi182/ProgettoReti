@@ -16,7 +16,6 @@ public class updateDatabase {
 	private static Gson gson = builder.create();
 	
 	public static void updateDbUser(String filename, Utente user) {
-		//builder.setDateFormat("yyyy/MM/dd HH:mm:ss");
 		try(FileOutputStream os = new FileOutputStream(filename);
 			FileChannel oc = os.getChannel();
 				){
@@ -38,7 +37,6 @@ public class updateDatabase {
 	}
 	
 	public static void updateDbPost(Post post, String filename) {
-		//builder.setDateFormat("yyyy/MM/dd HH:mm:ss");
 		try(FileOutputStream os = new FileOutputStream(filename);
 			FileChannel oc = os.getChannel();
 				){
@@ -82,8 +80,6 @@ public class updateDatabase {
 
 	public static void deleteFile(String filename) {
 		File f = new File(filename);
-		final String dir = System.getProperty("user.dir");
-        System.out.println("current dir = " + dir);
 		if(f.delete())
 			System.out.println("deleted");
 		else System.err.println("failed");

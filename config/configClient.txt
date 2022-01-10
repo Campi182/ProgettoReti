@@ -13,5 +13,3 @@ RMIPORT = 5000
 UDPPORT = 1025
 #indirizzo multicast
 MULTICAST = 226.226.226.226
-#Porta multicast
-MCASTPORT = 1025
